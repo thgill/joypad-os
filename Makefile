@@ -68,6 +68,7 @@ CONSOLE_dc := joypad_dc
 CONSOLE_dc_rp2040zero := joypad_dc_rp2040zero
 CONSOLE_ami_rp2040zero := joypad_ami_rp2040zero
 CONSOLE_ami_xiao := joypad_ami_xiao
+CONSOLE_ami_retrofrog := joypad_ami_retrofrog
 CONSOLE_usb_pico := joypad_usb_pico
 CONSOLE_usb_pico_w := joypad_usb_pico_w
 CONSOLE_usb_pico2_w := joypad_usb_pico2_w
