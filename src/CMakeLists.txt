@@ -83,6 +83,7 @@ target_compile_definitions(tinyusb_max3421 INTERFACE CONFIG_MAX3421=1)
 # Core sources (no USB host - used by native-input apps)
 set(CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/main.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/app_registry.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/router/router.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/leds/leds.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/leds/neopixel/ws2812.c
@@ -2271,37 +2272,6 @@ pico_enable_stdio_uart(joypad_controller_btusb_feather_rp2040 1)
 # TXS0108E level shifting (3.3V <-> 5V)
 # ============================================================================
 
-add_executable(joypad_ami_rp2040zero)
-target_compile_definitions(joypad_ami_rp2040zero PRIVATE
-    CONFIG_AMIGA=1
-    CONFIG_USB_HOST=1
-    WS2812_PIN=16
-    USE_BOOTSEL_BUTTON=1
-    REQUIRE_FLASH_SETTINGS=1
-    DISABLE_BUTTON_SERVICE=1
-    # TODO: finalize GPIO assignments for DIY Zero wiring guide
-    AMIGA_PIN_UP=2
-    AMIGA_PIN_DOWN=3
-    AMIGA_PIN_LEFT=4
-    AMIGA_PIN_RIGHT=5
-    AMIGA_PIN_CLK=6
-    AMIGA_PIN_DATA=7
-    AMIGA_PIN_JOYMODE=8
-)
-target_sources(joypad_ami_rp2040zero PUBLIC ${COMMON_SOURCES}
-    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga/amiga_device.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ami/app.c
-)
-target_include_directories(joypad_ami_rp2040zero PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ami
-    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga
-)
-target_link_libraries(joypad_ami_rp2040zero PRIVATE ${COMMON_LIBRARIES} pico_multicore)
-joypad_target_common(joypad_ami_rp2040zero)
-joypad_add_btstack(joypad_ami_rp2040zero)
-pico_enable_stdio_uart(joypad_ami_rp2040zero 0)
-pico_enable_stdio_usb(joypad_ami_rp2040zero 0)
-
 # ============================================================================
 # USB2AMI Retro Frog custom PCB (bare RP2040, GP0/GP1 PIO USB)
 # ============================================================================
@@ -2339,17 +2309,6 @@ joypad_target_common(joypad_ami_retrofrog)
 joypad_add_btstack(joypad_ami_retrofrog)
 pico_enable_stdio_uart(joypad_ami_retrofrog 0)
 pico_enable_stdio_usb(joypad_ami_retrofrog 0)
-target_sources(joypad_ami_rp2040zero PUBLIC ${COMMON_SOURCES}
-    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga/amiga_device.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ami/app.c
-)
-target_include_directories(joypad_ami_rp2040zero PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ami
-    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga
-)
-target_link_libraries(joypad_ami_rp2040zero PRIVATE ${COMMON_LIBRARIES} pico_multicore)
-joypad_target_common(joypad_ami_rp2040zero)
-joypad_add_btstack(joypad_ami_rp2040zero)
 
 # ============================================================================
 # USB2AMI (USB -> Amiga/Atari DE9, XIAO RP2040)
