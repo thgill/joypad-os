@@ -472,7 +472,6 @@ target_include_directories(joypad_ngc PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2gc
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/gamecube
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_ngc PRIVATE ${COMMON_LIBRARIES} hardware_flash tinyusb_device)
 joypad_target_common(joypad_ngc)
@@ -502,7 +501,6 @@ target_include_directories(joypad_ngc_rp2040zero PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2gc
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/gamecube
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_ngc_rp2040zero PRIVATE ${COMMON_LIBRARIES} hardware_flash tinyusb_device)
 joypad_target_common(joypad_ngc_rp2040zero)
@@ -875,7 +873,6 @@ target_sources(joypad_usb_feather_rp2040 PUBLIC
 )
 target_include_directories(joypad_usb_feather_rp2040 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_feather_rp2040 PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_pico_pio_usb)
 joypad_target_common(joypad_usb_feather_rp2040)
@@ -902,7 +899,6 @@ target_sources(joypad_usb_feather_rp2040_usb_host PUBLIC
 )
 target_include_directories(joypad_usb_feather_rp2040_usb_host PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_feather_rp2040_usb_host PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_pico_pio_usb)
 joypad_target_common(joypad_usb_feather_rp2040_usb_host)
@@ -947,7 +943,6 @@ target_sources(joypad_usb_feather_rp2040_max3421 PUBLIC
 )
 target_include_directories(joypad_usb_feather_rp2040_max3421 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_feather_rp2040_max3421 PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_max3421 hardware_i2c pico_i2c_slave)
 joypad_target_common(joypad_usb_feather_rp2040_max3421)
@@ -991,7 +986,6 @@ target_sources(joypad_usb_feather_rp2040_usb_host_max3421 PUBLIC
 )
 target_include_directories(joypad_usb_feather_rp2040_usb_host_max3421 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_feather_rp2040_usb_host_max3421 PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_max3421 hardware_i2c pico_i2c_slave)
 # Wrap buggy tuh_max3421_spi_xfer_api in TinyUSB BSP (hardcodes spi0 instead of MAX3421_SPI)
@@ -1014,7 +1008,6 @@ target_sources(joypad_usb_pico PUBLIC ${COMMON_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_usb_pico PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_pico PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_pico_pio_usb)
 joypad_target_common(joypad_usb_pico)
@@ -1034,7 +1027,6 @@ target_sources(joypad_usb_pico_w PUBLIC ${COMMON_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_usb_pico_w PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_pico_w PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_pico_pio_usb)
 joypad_target_common(joypad_usb_pico_w)
@@ -1054,7 +1046,6 @@ target_sources(joypad_usb_pico2_w PUBLIC ${COMMON_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_usb_pico2_w PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_pico2_w PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_pico_pio_usb)
 joypad_target_common(joypad_usb_pico2_w)
@@ -1075,7 +1066,6 @@ target_sources(joypad_usb_rp2040zero PUBLIC ${COMMON_SOURCES} ${USB_DEVICE_SOURC
 )
 target_include_directories(joypad_usb_rp2040zero PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_rp2040zero PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_pico_pio_usb)
 joypad_target_common(joypad_usb_rp2040zero)
@@ -1098,7 +1088,6 @@ target_sources(joypad_usb_rp2350usba PUBLIC ${COMMON_SOURCES} ${USB_DEVICE_SOURC
 )
 target_include_directories(joypad_usb_rp2350usba PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_rp2350usba PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_pico_pio_usb)
 joypad_target_common(joypad_usb_rp2350usba)
@@ -1131,8 +1120,7 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     )
     target_include_directories(joypad_bt2usb PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/bt2usb
-        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
-        ${CMAKE_CURRENT_SOURCE_DIR}/bt
+            ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
         ${BTSTACK_INCLUDES}
@@ -1182,8 +1170,7 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     target_include_directories(joypad_bt2nuon PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/bt2nuon
         ${CMAKE_CURRENT_SOURCE_DIR}/native/device/nuon
-        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
-        ${CMAKE_CURRENT_SOURCE_DIR}/bt
+            ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
         ${BTSTACK_INCLUDES}
@@ -1235,8 +1222,7 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     target_include_directories(joypad_bt2loopy PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/bt2loopy
         ${CMAKE_CURRENT_SOURCE_DIR}/native/device/loopy
-        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
-        ${CMAKE_CURRENT_SOURCE_DIR}/bt
+            ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
         ${BTSTACK_INCLUDES}
@@ -1288,8 +1274,7 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/bt2n64
         ${CMAKE_CURRENT_SOURCE_DIR}/native/device/n64
         ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
-        ${CMAKE_CURRENT_SOURCE_DIR}/bt
+            ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
         ${BTSTACK_INCLUDES}
@@ -1343,8 +1328,7 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     target_include_directories(joypad_bt2wiiext PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/bt2wiiext
         ${CMAKE_CURRENT_SOURCE_DIR}/native/device/wii_ext
-        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
-        ${CMAKE_CURRENT_SOURCE_DIR}/pad
+            ${CMAKE_CURRENT_SOURCE_DIR}/pad
         ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
@@ -1401,8 +1385,7 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/bt2gc
         ${CMAKE_CURRENT_SOURCE_DIR}/native/device/gamecube
         ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
-        ${CMAKE_CURRENT_SOURCE_DIR}/bt
+            ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
         ${BTSTACK_INCLUDES}
@@ -1455,8 +1438,7 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     )
     target_include_directories(joypad_btusb2usb PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
-        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
-        ${CMAKE_CURRENT_SOURCE_DIR}/bt
+            ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
         ${BTSTACK_INCLUDES}
@@ -1508,8 +1490,7 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     )
     target_include_directories(joypad_usb2ble PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ble
-        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
-        ${CMAKE_CURRENT_SOURCE_DIR}/bt
+            ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/ble_output
@@ -1586,8 +1567,7 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     )
     target_include_directories(joypad_controller_btusb PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller_btusb
-        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
-        ${CMAKE_CURRENT_SOURCE_DIR}/pad
+            ${CMAKE_CURRENT_SOURCE_DIR}/pad
         ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
@@ -1651,8 +1631,7 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     )
     target_include_directories(joypad_wifi2usb PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/wifi2usb
-        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
-        ${CMAKE_CURRENT_SOURCE_DIR}/wifi/jocp
+            ${CMAKE_CURRENT_SOURCE_DIR}/wifi/jocp
         ${CMAKE_CURRENT_SOURCE_DIR}/wifi
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
     )
@@ -1706,7 +1685,6 @@ target_sources(joypad_controller_btusb_rp2040_abb PUBLIC
 )
 target_include_directories(joypad_controller_btusb_rp2040_abb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller_btusb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/pad
     ${CMAKE_CURRENT_SOURCE_DIR}/bt
     ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
@@ -1747,7 +1725,6 @@ target_sources(joypad_controller_btusb_fisherprice_v1 PUBLIC
 )
 target_include_directories(joypad_controller_btusb_fisherprice_v1 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller_btusb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/pad
 )
 target_link_libraries(joypad_controller_btusb_fisherprice_v1 PRIVATE
@@ -1771,7 +1748,6 @@ target_sources(joypad_controller_btusb_fisherprice_v2 PUBLIC
 )
 target_include_directories(joypad_controller_btusb_fisherprice_v2 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller_btusb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/pad
 )
 target_link_libraries(joypad_controller_btusb_fisherprice_v2 PRIVATE
@@ -1795,7 +1771,6 @@ target_sources(joypad_controller_btusb_alpakka PUBLIC
 )
 target_include_directories(joypad_controller_btusb_alpakka PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller_btusb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/pad
 )
 target_link_libraries(joypad_controller_btusb_alpakka PRIVATE
@@ -1813,7 +1788,6 @@ target_sources(joypad_snes2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_snes2usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/snes2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/snes
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/SNESpad/src
 )
@@ -1841,7 +1815,6 @@ target_sources(joypad_wii2n64 PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_wii2n64 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/wii2n64
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/wii_ext
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/n64
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/wii_ext
@@ -1867,7 +1840,6 @@ target_sources(joypad_wii2gc PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_wii2gc PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/wii2gc
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/wii_ext
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/gamecube
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/wii_ext
@@ -1891,7 +1863,6 @@ target_sources(joypad_wii2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_wii2usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/wii2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/wii_ext
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/wii_ext
 )
@@ -1907,7 +1878,6 @@ target_sources(joypad_n642usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_n642usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/n642usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/n64
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
 )
@@ -1931,7 +1901,6 @@ target_sources(joypad_nuon2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 target_include_directories(joypad_nuon2usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/nuon2usb
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/nuon
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_nuon2usb PRIVATE pico_stdlib pico_multicore hardware_pio pico_rand pico_bit_ops tinyusb_device tinyusb_board)
 joypad_target_common(joypad_nuon2usb)
@@ -1954,7 +1923,6 @@ target_sources(joypad_gc2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_gc2usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
 )
@@ -1975,7 +1943,6 @@ target_sources(joypad_gc2usb_rp2040zero PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOUR
 )
 target_include_directories(joypad_gc2usb_rp2040zero PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
 )
@@ -1994,7 +1961,6 @@ target_sources(joypad_gc2usb_pico PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_gc2usb_pico PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
 )
@@ -2011,7 +1977,6 @@ target_sources(joypad_neogeo2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_neogeo2usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/neogeo2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/arcade
 )
 target_link_libraries(joypad_neogeo2usb PRIVATE pico_stdlib pico_multicore hardware_pio pico_rand tinyusb_device tinyusb_board)
@@ -2032,7 +1997,6 @@ target_sources(joypad_neogeo2usb_rp2040zero PUBLIC ${CORE_SOURCES} ${USB_DEVICE_
 )
 target_include_directories(joypad_neogeo2usb_rp2040zero PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/neogeo2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/arcade
 )
 target_link_libraries(joypad_neogeo2usb_rp2040zero PRIVATE pico_stdlib pico_multicore hardware_pio pico_rand tinyusb_device tinyusb_board)
@@ -2054,7 +2018,6 @@ target_sources(joypad_jvs2usb_rp2040zero PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOU
 )
 target_include_directories(joypad_jvs2usb_rp2040zero PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/jvs2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/jvsio
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/jvs
 )
@@ -2070,7 +2033,6 @@ target_sources(joypad_nes2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_nes2usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/nes2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/nes
 )
 target_link_libraries(joypad_nes2usb PRIVATE pico_stdlib pico_multicore hardware_pio pico_rand tinyusb_device tinyusb_board)
@@ -2087,7 +2049,6 @@ target_sources(joypad_lodgenet2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_lodgenet2usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/lodgenet2usb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/lodgenet
 )
 target_link_libraries(joypad_lodgenet2usb PRIVATE pico_stdlib pico_multicore hardware_pio pico_rand tinyusb_device tinyusb_board)
@@ -2149,7 +2110,6 @@ target_include_directories(joypad_lodgenet2gc PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/lodgenet
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/gamecube
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_lodgenet2gc PRIVATE pico_stdlib pico_multicore hardware_pio hardware_flash pico_rand tinyusb_device tinyusb_board)
 joypad_target_common(joypad_lodgenet2gc)
@@ -2165,7 +2125,6 @@ pico_generate_pio_header(joypad_lodgenet2gc ${CMAKE_CURRENT_LIST_DIR}/lib/joybus
 
 set(CONTROLLER_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/pad
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/uart
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/uart
@@ -2258,7 +2217,6 @@ target_sources(joypad_controller_btusb_feather_rp2040 PUBLIC
 )
 target_include_directories(joypad_controller_btusb_feather_rp2040 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller_btusb
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_controller_btusb_feather_rp2040 PRIVATE
     pico_stdlib pico_multicore hardware_pio hardware_i2c pico_rand tinyusb_device tinyusb_board
@@ -2303,7 +2261,6 @@ target_sources(joypad_ami_retrofrog PUBLIC ${COMMON_SOURCES}
 target_include_directories(joypad_ami_retrofrog PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ami
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga
-    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_ami_retrofrog PRIVATE ${COMMON_LIBRARIES} pico_multicore tinyusb_device tinyusb_pico_pio_usb)
 joypad_target_common(joypad_ami_retrofrog)
@@ -2311,7 +2268,42 @@ joypad_add_btstack(joypad_ami_retrofrog)
 pico_enable_stdio_uart(joypad_ami_retrofrog 0)
 pico_enable_stdio_usb(joypad_ami_retrofrog 0)
 
-
+# ============================================================================
+# USB2AMI (USB -> Amiga/Atari DE9, DFRobot Beetle RP2350)
+# DE9: UP=2 DOWN=13 LEFT=3 RIGHT=14 CLK=6 DATA=7 JOYMODE=8
+# LED: GPIO25 (onboard blue LED)
+# ============================================================================
+add_executable(joypad_ami_beetle_rp2350)
+target_compile_definitions(joypad_ami_beetle_rp2350 PRIVATE
+    CONFIG_AMIGA=1
+    CONFIG_USB_HOST=1
+    CONFIG_NO_NEOPIXEL=1
+    BOARD_LED_PIN=25
+    REQUIRE_FLASH_SETTINGS=1
+    DISABLE_BUTTON_SERVICE=1
+    # DE9 signals
+    AMIGA_PIN_UP=0
+    AMIGA_PIN_DOWN=1
+    AMIGA_PIN_LEFT=4
+    AMIGA_PIN_RIGHT=5
+    AMIGA_PIN_CLK=8
+    AMIGA_PIN_DATA=9
+    AMIGA_PIN_JOYMODE=16
+    PICO_DEFAULT_SYS_CLK_HZ=48000000
+)
+target_sources(joypad_ami_beetle_rp2350 PUBLIC ${COMMON_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga/amiga_device.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ami/app.c
+)
+target_include_directories(joypad_ami_beetle_rp2350 PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ami
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga
+)
+target_link_libraries(joypad_ami_beetle_rp2350 PRIVATE ${COMMON_LIBRARIES} pico_multicore)
+joypad_target_common(joypad_ami_beetle_rp2350)
+joypad_add_btstack(joypad_ami_beetle_rp2350)
+pico_enable_stdio_uart(joypad_ami_beetle_rp2350 0)
+pico_enable_stdio_usb(joypad_ami_beetle_rp2350 0)
 
 
 # ============================================================================
