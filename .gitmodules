@@ -4,7 +4,7 @@
 [submodule "src/lib/joybus-pio"]
 	path = src/lib/joybus-pio
 	url = https://github.com/RobertDaleSmith/joybus-pio.git
-	branch = c
+	branch = main
 [submodule "src/lib/pico-sdk"]
 	path = src/lib/pico-sdk
 	url = https://github.com/raspberrypi/pico-sdk.git

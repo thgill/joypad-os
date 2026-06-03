@@ -6,6 +6,7 @@
 src/build
 .DS_Store
 releases/
+backups/
 src/build/
 .dev
 node_modules/
@@ -15,5 +16,6 @@ esp/build/
 esp/sdkconfig
 esp/dependencies.lock
 esp/.cache/
+gba/*/build/
 .vercel
 .claude/

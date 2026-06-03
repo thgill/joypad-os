@@ -8,11 +8,11 @@
 #include "gamecube_definitions.h"
 #include "joybus.h"
 #include "gba_multiboot.h"
+#include "usb/usbd/usbd.h"
 #include "core/router/router.h"
 #include "core/input_event.h"
 #include "core/buttons.h"
 #include "core/services/players/feedback.h"
-#include "core/services/leds/leds.h"
 #include "platform/platform.h"
 #include <hardware/pio.h>
 #include <pico/time.h>
@@ -29,6 +29,13 @@ static bool rumble_state[GC_MAX_PORTS] = {false};
 static uint8_t disconnect_debounce[GC_MAX_PORTS] = {0};  // Debounce brief disconnects
 static bool was_connected[GC_MAX_PORTS] = {false};  // Track connection state
 static bool gba_boot_attempted[GC_MAX_PORTS] = {false};  // One multiboot attempt per disconnect cycle
+// Consecutive gba_input_read failures since the last successful read.
+// Used to detect a GBA power-cycle or unplug after multiboot succeeded:
+// once this exceeds GBA_READ_FAIL_RESET_THRESHOLD we clear
+// gba_boot_attempted and let the probe re-run from scratch.
+#define GBA_READ_FAIL_RESET_THRESHOLD 50
+static uint16_t gba_read_fail_streak[GC_MAX_PORTS] = {0};
+static bool gba_bridge_owned[GC_MAX_PORTS] = {false};    // True when gba_bridge.c owns the joybus port
 static uint32_t gba_probe_next_ms[GC_MAX_PORTS] = {0};  // Rate-limit GBA probes (500ms)
 
 // Track previous state for edge detection
@@ -226,7 +233,6 @@ void gc_host_task(void)
 {
     if (!initialized) return;
 
-
     // Check feedback system for rumble updates
     for (int port = 0; port < GC_MAX_PORTS; port++) {
         feedback_state_t* feedback = feedback_get_state(port);
@@ -244,15 +250,49 @@ void gc_host_task(void)
     for (int port = 0; port < GC_MAX_PORTS; port++) {
         GamecubeController* controller = &gc_controllers[port];
 
+        // Bridge owns the joybus PIO for this port — skip ALL gc_host
+        // activity (autopoll AND multiboot). The previous skip below
+        // only fired *after* gba_boot_attempted was set, so a fresh
+        // bridge-mode boot (where gc_host hasn't autobooted yet) would
+        // still race with our bridge's joybus_bridge_xfer on the same
+        // PIO state machine, causing every transfer to time out.
+        if (gba_bridge_owned[port]) {
+            continue;
+        }
+
         // GBA-as-controller path: after multiboot, the GBA-side payload uses
         // joybus mode (0x14 READ → 4 bytes of input state). The standard GC
         // controller protocol (probe/origin/poll) does NOT match — we must
         // bypass GamecubeController_Poll entirely.
         if (gba_boot_attempted[port]) {
+            // If gba_bridge owns the bus, skip autopoll — its CDC-driven
+            // traffic would race with our reads otherwise.
+            if (gba_bridge_owned[port]) {
+                continue;
+            }
             uint8_t gba_keys[4];
             if (gba_input_read(&controller->_port, gba_keys) < 0) {
+                // GBA may have been power-cycled (back into BIOS) or
+                // physically disconnected. Tolerate brief transients,
+                // but after a streak of failures clear boot_attempted
+                // so the next probe cycle re-runs detection and re-
+                // multiboots if needed.
+                if (++gba_read_fail_streak[port] >= GBA_READ_FAIL_RESET_THRESHOLD) {
+                    printf("[gc_host] Port %d: GBA gone silent for %d reads "
+                           "→ resetting boot_attempted, will re-probe in 2s\n",
+                           port, gba_read_fail_streak[port]);
+                    gba_boot_attempted[port]  = false;
+                    gba_read_fail_streak[port] = 0;
+                    // Give the GBA's BIOS time to finish its power-on
+                    // init before bombing the bus again. If it's mid-
+                    // boot when we probe, our STATUS commands fight
+                    // with the BIOS's own SIO init and the GBA never
+                    // reaches multiboot-wait state.
+                    gba_probe_next_ms[port] = to_ms_since_boot(get_absolute_time()) + 2000;
+                }
                 continue;  // transient bus failure
             }
+            gba_read_fail_streak[port] = 0;
             // Stale-read filter: cable's level-shifter MCU returns 0 when
             // JSTAT.SEND is clear (= GBA hasn't refilled JOY_TRANS since
             // our last read). Real GBA writes lower 16 bits of JOYTR with
@@ -323,28 +363,49 @@ void gc_host_task(void)
         if (!success
             && !GamecubeController_IsInitialized(controller)
             && !gba_boot_attempted[port]
+            && !gba_bridge_owned[port]   // daemon owns the bus; don't race
             && gba_payload_len > 0) {
             uint32_t now_ms = to_ms_since_boot(get_absolute_time());
             if (now_ms >= gba_probe_next_ms[port]) {
                 gba_probe_next_ms[port] = now_ms + 2000;
+
+                // Firmware-restart shortcut: if a payload is already
+                // running on the GBA (e.g. we just rebooted the kb2040
+                // but the GBA stayed powered), skip the ~3 s multiboot
+                // upload and resume polling immediately. This is what
+                // distinguishes "GBA in BIOS multiboot wait, PSF0 set"
+                // from "GBA running a payload in JOY mode, PSF0 clear,
+                // READ responds with valid jstat".
+                if (gba_mb_payload_already_running(&controller->_port)) {
+                    printf("[gc_host] Port %d: GBA payload already running "
+                           "→ skipping multiboot, resuming poll\n", port);
+                    gba_boot_attempted[port] = true;
+                    // Tell the running payload to flash its splash for the
+                    // current USB output mode — without this the user sees
+                    // no visual indication after a firmware reboot.
+                    uint8_t mode_id = (uint8_t)usbd_get_mode();
+                    gba_send_splash_cmd(&controller->_port, mode_id);
+                    continue;
+                }
+
+                extern void gba_mb_detect_log_printf(const char* fmt, ...);
+                gba_mb_detect_log_printf("→ calling multiboot (len=%lu)\n",
+                                         (unsigned long)gba_payload_len);
                 printf("[gc_host] Port %d: attempting GBA multiboot "
                        "(payload %lu bytes)\n",
                        port, (unsigned long)gba_payload_len);
-                leds_set_color(255, 64, 0);  // amber: trying
                 gba_mb_result_t r = gba_mb_upload(&controller->_port,
                                                   gba_payload, gba_payload_len,
                                                   /*palette*/3, /*speed*/0,
                                                   /*channel*/port);
+                gba_mb_detect_log_printf("→ multiboot returned %d\n", (int)r);
                 if (r == GBA_MB_OK) {
                     printf("[gc_host] Port %d: GBA boot OK, payload running\n", port);
-                    leds_set_color(0, 255, 0);  // green: boot OK
                     gba_boot_attempted[port] = true;
                     sleep_ms(200);  // let the payload init SIO and halt before we poll
                 } else {
                     printf("[gc_host] Port %d: GBA multiboot failed (%d), retrying in 2s\n",
                            port, (int)r);
-                    // Encode failure code in LED: red base + small green tweak
-                    leds_set_color(255, (uint8_t)(-(int)r * 32), 0);
                     // Don't set gba_boot_attempted — keep retrying until success
                 }
             }
@@ -450,6 +511,7 @@ void gc_host_task(void)
         event.dev_addr = 0xD0 + port;  // Use 0xD0+ range for GC native inputs
         event.instance = 0;
         event.type = INPUT_TYPE_GAMEPAD;
+        event.layout = LAYOUT_GAMECUBE;  // AXBY face style + gates GC hotkeys
         event.buttons = buttons;
         event.analog[ANALOG_LX] = stick_x;
         event.analog[ANALOG_LY] = stick_y;
@@ -521,3 +583,48 @@ const InputInterface gc_input_interface = {
     .is_connected = gc_host_is_connected,
     .get_device_count = gc_get_device_count,
 };
+
+// ============================================================================
+// GBA BRIDGE COORDINATION (called from gba_bridge.c)
+// ============================================================================
+
+joybus_port_t* gc_host_get_gba_port(void)
+{
+    if (!initialized) return NULL;
+    return &gc_controllers[0]._port;
+}
+
+bool gc_host_gba_boot_attempted(uint8_t port)
+{
+    if (port >= GC_MAX_PORTS) return false;
+    return gba_boot_attempted[port];
+}
+
+uint16_t gc_host_gba_read_fail_streak(uint8_t port)
+{
+    if (port >= GC_MAX_PORTS) return 0;
+    return gba_read_fail_streak[port];
+}
+
+void gc_host_gba_reset_boot_attempted(uint8_t port)
+{
+    if (port >= GC_MAX_PORTS) return;
+    gba_boot_attempted[port] = false;
+    gba_probe_next_ms[port]  = 0;  // probe immediately on next task
+}
+
+bool gc_host_gba_acquire_for_bridge(void)
+{
+    if (!initialized) return false;
+    // Allow acquire BEFORE autoboot has fired — daemon may want to
+    // upload its own ROM instead of letting gc_host's autoboot install
+    // the embedded joypad payload. Once owned, gc_host_task skips both
+    // its autopoll AND its autoboot path until released.
+    gba_bridge_owned[0] = true;
+    return true;
+}
+
+void gc_host_gba_release_from_bridge(void)
+{
+    gba_bridge_owned[0] = false;
+}

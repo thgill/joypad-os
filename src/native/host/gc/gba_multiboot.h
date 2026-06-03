@@ -31,6 +31,27 @@ typedef enum {
 // Probe a joybus port: returns true if the device ID matches GBA Type 0x0400.
 bool gba_mb_detect(joybus_port_t* port);
 
+// True only when the GBA is in BIOS multiboot wait state (responds to
+// STATUS with the GBA type AND has JSTAT.PSF0 set). Use this — not
+// gba_mb_detect — to gate autoboot, so the firmware doesn't kick a
+// running payload by trying to upload over the top of it.
+bool gba_mb_in_multiboot_wait(joybus_port_t* port);
+
+// Returns true if a multiboot payload is already running and ready to
+// be polled via JOY-bus reads (STATUS shows GBA type AND PSF0 is
+// cleared AND a READ comes back with valid jstat). Used after firmware
+// restart to skip re-uploading the embedded payload when the GBA was
+// never power-cycled — saves ~3 s of multiboot time on every reboot.
+bool gba_mb_payload_already_running(joybus_port_t* port);
+
+// Tell the running payload to render its splash for the given USB
+// output mode. Encodes mode in the low byte of a magic 0xCAFE55XX
+// word and sends it via joybus WRITE; the GBA payload edge-triggers
+// on REG_JOYRE changes matching that magic. No-op on payloads
+// without splash support (their REG_JOYRE just updates silently).
+// Returns 0 on success, negative on joybus error.
+int  gba_send_splash_cmd(joybus_port_t* port, uint8_t mode_id);
+
 // Upload a .gba ROM and trigger GBA boot.
 //   rom/len  : .gba file contents (1..256KB-1, padded internally to mult. of 8)
 //   palette  : boot-logo color, 0..6

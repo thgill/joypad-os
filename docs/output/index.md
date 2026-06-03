@@ -64,6 +64,10 @@ The USB device output supports 13 emulation modes, selectable at runtime via [we
 
 Mode switching triggers USB re-enumeration. The selected mode persists to flash.
 
+## Related
+
+- [GBA Link Cable](gba-link-cable.md) — production GameCube→GBA controller mode (gc2usb autoboots an embedded payload onto a real GBA over the DOL-011 link cable; GBA reads back as a HID gamepad). Also covers the experimental USB-vendor bridge mode for a forked Dolphin (default-off, see doc for status).
+
 ## Feedback
 
 Console outputs can send feedback back to the input controllers:

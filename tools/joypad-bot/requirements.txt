@@ -1,0 +1,14 @@
+nes-py>=8.2.1
+openai>=1.50.0
+Pillow>=10.0.0
+# Pygame for the live viewer (nes-py's own render_mode='human' is unreliable
+# on macOS subprocess contexts; we run our own SDL-based window instead).
+pygame>=2.5.0
+# Realtime API uses a WebSocket transport — talk to it directly rather than
+# through the openai SDK to keep version coupling loose.
+websockets>=12.0
+# LeRobot — dataset format + behavior-cloning policies. Used by recorder.py
+# (and the upcoming trainer / inference adapter) to collect human gameplay
+# and train a local VLA policy that replaces the OpenAI call.
+lerobot>=0.5.0
+

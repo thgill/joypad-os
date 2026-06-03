@@ -32,6 +32,7 @@ typedef enum {
     USB_OUTPUT_MODE_GC_ADAPTER,         // GameCube Adapter for Wii U/Switch
     USB_OUTPUT_MODE_PCEMINI,            // PC Engine Mini (TurboGrafx-16 Mini)
     USB_OUTPUT_MODE_CDC,                // CDC-only (serial config, no HID)
+    USB_OUTPUT_MODE_GBA_LINK,           // GBA Link Cable bridge for Dolphin (USB vendor)
     USB_OUTPUT_MODE_COUNT
 } usb_output_mode_t;
 
@@ -122,6 +123,14 @@ void usbd_task(void);
 
 // Send gamepad report for a player
 bool usbd_send_report(uint8_t player_index);
+
+// App-overridable callback fired when the host (currently: PS3) issues a
+// "turn off controller" command to the USB device. Default impl in usbd.c
+// is a no-op; bt2usb overrides it to disconnect the bridged BT controller
+// so a real DS3/DS4 etc. auto-sleeps after losing its host. Apps that
+// bridge a wired controller (psx2usb / native-host adapters) generally
+// don't need an override -- the wired pad can't be told to power off.
+void app_on_console_shutdown(void);
 
 // ============================================================================
 // MODE SELECTION API

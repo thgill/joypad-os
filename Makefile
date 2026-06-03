@@ -11,20 +11,23 @@ export
 # Parallel jobs for cmake builds (auto-detect cores, fallback to 4)
 JOBS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
-# Ensure PICO_TOOLCHAIN_PATH is set
+# Ensure PICO_TOOLCHAIN_PATH is set. Prefer the latest ARM GNU Toolchain
+# installed under /Applications/ArmGNUToolchain/ (the cask `gcc-arm-embedded`
+# .pkg, which bundles newlib). Fall back to PATH for Linux/CI/Docker.
+# Note: the brew formula `arm-none-eabi-gcc` is NOT a viable substitute on
+# macOS — it lacks newlib (`nosys.specs` missing) and bare-metal links fail.
+# Docker pins ARM 15.2.rel1 (see Dockerfile); 14.x locally is fine for
+# matching codegen on the d6c02ac pico-pio-usb pin.
 ifndef PICO_TOOLCHAIN_PATH
-    # Try macOS default location
-    TOOLCHAIN_PATH_MACOS := /Applications/ArmGNUToolchain/14.2.rel1/arm-none-eabi
-    # Try Linux/CI location (toolchain in PATH)
+    TOOLCHAIN_PATH_MACOS := $(shell ls -d /Applications/ArmGNUToolchain/*/arm-none-eabi 2>/dev/null | sort -V | tail -1)
     TOOLCHAIN_IN_PATH := $(shell which arm-none-eabi-gcc 2>/dev/null)
 
-    ifneq ($(wildcard $(TOOLCHAIN_PATH_MACOS)),)
+    ifneq ($(TOOLCHAIN_PATH_MACOS),)
         export PICO_TOOLCHAIN_PATH := $(TOOLCHAIN_PATH_MACOS)
     else ifneq ($(TOOLCHAIN_IN_PATH),)
-        # Toolchain is in PATH (Linux/Docker/CI) - pico-sdk will find it automatically
         export PICO_TOOLCHAIN_PATH :=
     else
-        $(error PICO_TOOLCHAIN_PATH not set and toolchain not found in PATH or at $(TOOLCHAIN_PATH_MACOS))
+        $(error No ARM toolchain found. Install with `brew install --cask gcc-arm-embedded` then run the .pkg installer (puts toolchain at /Applications/ArmGNUToolchain/X.Y.relZ/))
     endif
 endif
 
@@ -50,10 +53,13 @@ BOARD_SCRIPT_pico2_w := boards/build_pico2_w.sh
 BOARD_SCRIPT_kb2040 := boards/build_ada_kb2040.sh
 BOARD_SCRIPT_qtpy := boards/build_ada_qtpy.sh
 BOARD_SCRIPT_rp2040zero := boards/build_waveshare_rp2040_zero.sh
+BOARD_SCRIPT_seeed_xiao_rp2040 := boards/build_seeed_xiao_rp2040.sh
 BOARD_SCRIPT_feather_usbhost := boards/build_ada_feather_usbhost.sh
 BOARD_SCRIPT_feather := boards/build_ada_feather.sh
 BOARD_SCRIPT_macropad := boards/build_ada_macropad.sh
 BOARD_SCRIPT_rp2350usba := boards/build_waveshare_rp2350_usb_a.sh
+BOARD_SCRIPT_rp2040_eth := boards/build_waveshare_rp2040_eth.sh
+BOARD_SCRIPT_waveshare_rp2350b_plus_w := boards/build_waveshare_rp2350b_plus_w.sh
 
 # Console targets (cmake target names)
 CONSOLE_3do := joypad_3do
@@ -65,12 +71,17 @@ CONSOLE_nuonserial := joypad_nuonserial
 CONSOLE_loopy := joypad_loopy
 CONSOLE_dc := joypad_dc
 CONSOLE_dc_rp2040zero := joypad_dc_rp2040zero
+CONSOLE_ami_rp2040zero := joypad_ami_rp2040zero
+CONSOLE_ami_xiao := joypad_ami_xiao
+CONSOLE_ami_retrofrog := joypad_ami_retrofrog
+CONSOLE_ami_beetle_rp2350 := joypad_ami_beetle_rp2350
 CONSOLE_usb_pico := joypad_usb_pico
 CONSOLE_usb_pico_w := joypad_usb_pico_w
 CONSOLE_usb_pico2_w := joypad_usb_pico2_w
 CONSOLE_neogeo := joypad_neogeo
 CONSOLE_neogeo_pico := joypad_neogeo_pico
 CONSOLE_neogeo_rp2040zero := joypad_neogeo_rp2040zero
+CONSOLE_neogeo_retrofrog := joypad_neogeo_retrofrog
 CONSOLE_n642dc := joypad_n642dc
 CONSOLE_n642dc_pico2_w := joypad_n642dc_pico2_w
 CONSOLE_n642nuon := joypad_n642nuon
@@ -78,6 +89,9 @@ CONSOLE_n642nuon_pico := joypad_n642nuon
 CONSOLE_n642nuon_aries64 := joypad_n642nuon_aries64
 CONSOLE_snes3do := joypad_snes3do
 CONSOLE_uart := joypad_uart
+CONSOLE_usb2usb_remapper_v7_b := joypad_usb2usb_remapper_v7_b
+CONSOLE_usb2usb_remapper_v7_a := joypad_usb2usb_remapper_v7_a
+CONSOLE_usb2usb_remapper_v7 := joypad_usb2usb_remapper_v7
 CONSOLE_usb_feather_rp2040 := joypad_usb_feather_rp2040
 CONSOLE_usb_feather_rp2040_usb_host := joypad_usb_feather_rp2040_usb_host
 CONSOLE_usb_feather_rp2040_max3421 := joypad_usb_feather_rp2040_max3421
@@ -93,10 +107,15 @@ CONSOLE_usb2ble := joypad_usb2ble
 CONSOLE_n64 := joypad_n64
 CONSOLE_wifi2usb := joypad_wifi2usb
 CONSOLE_snes2usb := joypad_snes2usb
+CONSOLE_psx2usb := joypad_psx2usb
 CONSOLE_nes2usb := joypad_nes2usb
 CONSOLE_n642usb := joypad_n642usb
 CONSOLE_nuon2usb := joypad_nuon2usb
 CONSOLE_gc2usb := joypad_gc2usb
+CONSOLE_gc2usb_pico := joypad_gc2usb_pico
+CONSOLE_gc2usb_feather_usbhost := joypad_gc2usb_feather_usbhost
+CONSOLE_gc2eth := joypad_gc2eth
+CONSOLE_gc2eth_feather := joypad_gc2eth_feather
 CONSOLE_wii2usb := joypad_wii2usb
 CONSOLE_wii2gc := joypad_wii2gc
 CONSOLE_wii2n64 := joypad_wii2n64
@@ -115,12 +134,10 @@ CONSOLE_bt2wiiext := joypad_bt2wiiext
 CONSOLE_controller_btusb := joypad_controller_btusb
 CONSOLE_controller_btusb_rp2040_abb := joypad_controller_btusb_rp2040_abb
 CONSOLE_controller_btusb_feather_rp2040 := joypad_controller_btusb_feather_rp2040
+CONSOLE_controller_btusb_feather_rp2040_usb_host := joypad_controller_btusb_feather_rp2040_usb_host
 CONSOLE_controller_btusb_fisherprice_v1 := joypad_controller_btusb_fisherprice_v1
 CONSOLE_controller_btusb_fisherprice_v2 := joypad_controller_btusb_fisherprice_v2
 CONSOLE_controller_btusb_alpakka := joypad_controller_btusb_alpakka
-CONSOLE_ami_xiao := joypad_ami_xiao
-CONSOLE_ami_retrofrog := joypad_ami_retrofrog
-CONSOLE_ami_beetle_rp2350 := joypad_ami_beetle_rp2350
 
 
 # App definitions: APP_name = board target output_name input output
@@ -133,11 +150,17 @@ APP_nuonserial_kb2040 := kb2040 nuonserial nuonserial_kb2040 Nuon CDC-Serial
 APP_usb2loopy_kb2040 := kb2040 loopy usb2loopy_kb2040 USB/BT Loopy
 APP_usb2dc_kb2040 := kb2040 dc usb2dc_kb2040 USB/BT Dreamcast
 APP_usb2dc_rp2040zero := rp2040zero dc_rp2040zero usb2dc_rp2040zero USB/BT Dreamcast
+APP_usb2ami_rp2040zero := rp2040zero ami_rp2040zero usb2ami_rp2040zero USB/BT Amiga/Atari
+APP_usb2ami_xiao := seeed_xiao_rp2040 ami_xiao usb2ami_xiao USB/BT Amiga/Atari
+APP_usb2ami_retrofrog := rp2040zero ami_retrofrog usb2ami_retrofrog USB/BT Amiga/Atari (Retro Frog PCB)
+APP_usb2ami_beetle_rp2350 := pico2 ami_beetle_rp2350 usb2ami_beetle_rp2350 USB/BT Amiga/Atari (Beetle RP2350)
 APP_usb2neogeo_kb2040 := kb2040 neogeo usb2neogeo_kb2040 USB/BT NEOGEO
 APP_usb2neogeo_pico := pico neogeo_pico usb2neogeo_pico USB/BT NEOGEO
 APP_usb2neogeo_rp2040zero := rp2040zero neogeo_rp2040zero usb2neogeo_rp2040zero USB/BT NEOGEO
+APP_usb2neogeo_retrofrog := rp2040zero neogeo_retrofrog usb2neogeo_retrofrog USB/BT NEOGEO
 APP_n642dc_kb2040 := kb2040 n642dc n642dc_kb2040 N64 Dreamcast
 APP_n642dc_pico2_w := pico2_w n642dc_pico2_w n642dc_pico2_w N64 Dreamcast
+APP_gc2dc_kb2040 := kb2040 gc2dc gc2dc_kb2040 GameCube Dreamcast
 APP_nes2usb_kb2040 := kb2040 nes2usb nes2usb_kb2040 NES USB
 APP_nes2usb_pico_w := pico_w nes2usb nes2usb_pico_w NES USB
 APP_n642nuon_pico := pico n642nuon n642nuon_pico N64 Nuon
@@ -153,13 +176,16 @@ APP_usb2usb_feather_rp2040_usb_host := feather_usbhost usb_feather_rp2040_usb_ho
 APP_usb2usb_feather_rp2040_max3421 := feather usb_feather_rp2040_max3421 usb2usb_feather_rp2040_max3421 USB/BT USB
 APP_usb2usb_feather_rp2040_usb_host_max3421 := feather_usbhost usb_feather_rp2040_usb_host_max3421 usb2usb_feather_rp2040_usb_host_max3421 USB/BT USB
 APP_usb2usb_rp2040zero := rp2040zero usb_rp2040zero usb2usb_rp2040zero USB/BT USB
+# Dual-RP2040 (HID-Remapper v7 / IcemanFGC) — loose-Pico dev rig uses board=pico
+APP_usb2usb_remapper_v7_b := pico usb2usb_remapper_v7_b usb2usb_remapper_v7_b USB UART-link
+APP_usb2usb_remapper_v7_a := pico usb2usb_remapper_v7_a usb2usb_remapper_v7_a UART-link USB
+# Combined single-UF2 (A flash + flash_b_side RAM stage that SWD-flashes B) — flash to the board's USB-C
+APP_usb2usb_remapper_v7 := pico usb2usb_remapper_v7 usb2usb_remapper_v7 USB USB
 APP_usb2usb_rp2350usba := rp2350usba usb_rp2350usba usb2usb_rp2350usba USB/BT USB
 APP_bt2usb_pico_w := pico_w bt2usb bt2usb_pico_w Bluetooth USB
 APP_bt2usb_pico2_w := pico2_w bt2usb bt2usb_pico2_w Bluetooth USB
+APP_bt2usb_waveshare_rp2350b_plus_w := waveshare_rp2350b_plus_w bt2usb bt2usb_waveshare_rp2350b_plus_w Bluetooth USB
 APP_bt2loopy_pico_w := pico_w bt2loopy bt2loopy_pico_w Bluetooth Loopy
-APP_usb2ami_xiao := seeed_xiao_rp2040 ami_xiao usb2ami_xiao USB/BT Amiga/Atari
-APP_usb2ami_retrofrog := rp2040zero ami_retrofrog usb2ami_retrofrog USB/BT Amiga/Atari (Retro Frog PCB)
-APP_usb2ami_beetle_rp2350 := pico2 ami_beetle_rp2350 usb2ami_beetle_rp2350 USB/BT Amiga/Atari (Beetle RP2350)
 APP_bt2nuon_pico_w := pico_w bt2nuon bt2nuon_pico_w Bluetooth Nuon
 APP_bt2nuon_pico2_w := pico2_w bt2nuon bt2nuon_pico2_w Bluetooth Nuon
 APP_bt2n64_pico_w := pico_w bt2n64 bt2n64_pico_w Bluetooth N64
@@ -175,12 +201,18 @@ APP_usb2n64_kb2040 := kb2040 n64 usb2n64_kb2040 USB/BT N64
 APP_wifi2usb_pico_w := pico_w wifi2usb wifi2usb_pico_w WiFi USB
 APP_wifi2usb_pico2_w := pico2_w wifi2usb wifi2usb_pico2_w WiFi USB
 APP_snes2usb_kb2040 := kb2040 snes2usb snes2usb_kb2040 SNES USB
+APP_psx2usb_qtpy := qtpy psx2usb psx2usb_qtpy PS1/PS2 USB
+APP_psx2usb_kb2040 := kb2040 psx2usb psx2usb_kb2040 PS1/PS2 USB
+APP_psx2usb_pico := pico psx2usb psx2usb_pico PS1/PS2 USB
 APP_n642usb_kb2040 := kb2040 n642usb n642usb_kb2040 N64 USB
 APP_nuon2usb_kb2040 := kb2040 nuon2usb nuon2usb_kb2040 Nuon USB
 APP_nuon2usb_pico_w := pico_w nuon2usb nuon2usb_pico_w Nuon USB
 APP_gc2usb_kb2040 := kb2040 gc2usb gc2usb_kb2040 GameCube USB
 APP_gc2usb_rp2040zero := rp2040zero gc2usb gc2usb_rp2040zero GameCube USB
-APP_gc2usb_pico := pico gc2usb gc2usb_pico GameCube USB
+APP_gc2usb_pico := pico gc2usb_pico gc2usb_pico GameCube USB
+APP_gc2eth_rp2040_eth := rp2040_eth gc2eth gc2eth_rp2040_eth GameCube/GBA Ethernet/TCP(Dolphin)
+APP_gc2eth_feather_usbhost := feather_usbhost gc2eth_feather gc2eth_feather GameCube/GBA W5500 PoE FeatherWing
+APP_gc2usb_feather_usbhost := feather_usbhost gc2usb_feather_usbhost gc2usb_feather_usbhost GameCube → USB HID (Feather USB Host, GP4)
 APP_wii2usb_kb2040 := kb2040 wii2usb wii2usb_kb2040 Wii USB
 APP_wii2gc_kb2040 := kb2040 wii2gc wii2gc_kb2040 Wii GameCube
 APP_wii2n64_pico := pico wii2n64 wii2n64_pico Wii N64
@@ -202,11 +234,12 @@ APP_controller_btusb_pico_w := pico_w controller_btusb controller_btusb_pico_w J
 APP_controller_btusb_pico2_w := pico2_w controller_btusb controller_btusb_pico2_w JoyWing BLE/USB
 APP_controller_btusb_rp2040_abb := pico controller_btusb_rp2040_abb controller_btusb_rp2040_abb ABB USB
 APP_controller_btusb_feather_rp2040 := feather controller_btusb_feather_rp2040 controller_btusb_feather_rp2040 JoyWing USB
+APP_controller_btusb_feather_rp2040_usb_host := feather_usbhost controller_btusb_feather_rp2040_usb_host controller_btusb_feather_rp2040_usb_host JoyWing USB
 
 
 # All apps (note: controller_macropad not included - build explicitly with 'make controller_macropad')
 # Note: usb2loopy_kb2040, snes23do_rp2040zero excluded until more mature
-APPS := usb2pce_kb2040 usb2gc_kb2040 usb2gc_rp2040zero usb2nuon_kb2040 usb2n64_kb2040 usb2dc_kb2040 usb2dc_rp2040zero usb2neogeo_kb2040 usb2neogeo_pico usb2neogeo_rp2040zero n642dc_kb2040 n642dc_pico2_w n642nuon_pico usb23do_rp2040zero usb2uart_kb2040 usb2usb_pico usb2usb_pico_w usb2usb_pico2_w usb2usb_feather_rp2040 usb2usb_feather_rp2040_usb_host usb2usb_feather_rp2040_max3421 usb2usb_feather_rp2040_usb_host_max3421 usb2usb_rp2040zero usb2usb_rp2350usba bt2usb_pico_w bt2usb_pico2_w btusb2usb_pico_w btusb2usb_pico2_w usb2ble_pico_w usb2ble_pico2_w bt2nuon_pico_w bt2nuon_pico2_w bt2n64_pico_w bt2n64_pico2_w snes2usb_kb2040 n642usb_kb2040 gc2usb_kb2040 gc2usb_rp2040zero nes2usb_kb2040 nes2usb_pico_w controller_fisherprice_v1_kb2040 controller_fisherprice_v2_kb2040 controller_alpakka_pico usb2ami_xiao usb2ami_retrofrog usb2ami_beetle_rp2350
+APPS := usb2pce_kb2040 usb2gc_kb2040 usb2gc_rp2040zero usb2nuon_kb2040 usb2n64_kb2040 usb2dc_kb2040 usb2dc_rp2040zero usb2neogeo_kb2040 usb2neogeo_pico usb2neogeo_rp2040zero usb2neogeo_retrofrog n642dc_kb2040 n642dc_pico2_w n642nuon_pico usb23do_rp2040zero usb2uart_kb2040 usb2usb_pico usb2usb_pico_w usb2usb_pico2_w usb2usb_feather_rp2040 usb2usb_feather_rp2040_usb_host usb2usb_feather_rp2040_max3421 usb2usb_feather_rp2040_usb_host_max3421 usb2usb_rp2040zero usb2usb_rp2350usba bt2usb_pico_w bt2usb_pico2_w btusb2usb_pico_w btusb2usb_pico2_w usb2ble_pico_w usb2ble_pico2_w bt2nuon_pico_w bt2nuon_pico2_w bt2n64_pico_w bt2n64_pico2_w snes2usb_kb2040 n642usb_kb2040 gc2usb_kb2040 gc2usb_rp2040zero gc2usb_feather_usbhost gc2eth_rp2040_eth gc2eth_feather_usbhost nes2usb_kb2040 nes2usb_pico_w controller_fisherprice_v1_kb2040 controller_fisherprice_v2_kb2040 controller_alpakka_pico usb2ami_rp2040zero usb2ami_xiao usb2ami_retrofrog usb2ami_beetle_rp2350
 
 # Stable apps for release
 # Note: usb2loopy_kb2040, snes23do_rp2040zero excluded until more mature
@@ -256,6 +289,7 @@ help:
 	@echo "  make usb2neogeo_kb2040  - USB/BT -> NEOGEO (KB2040)"
 	@echo "  make usb2neogeo_pico    - USB/BT -> NEOGEO (Pi Pico)"
 	@echo "  make usb2neogeo_rp2040zero - USB/BT -> NEOGEO (RP2040-Zero)"
+	@echo "  make usb2neogeo_retrofrog  - USB/BT -> NEOGEO (Retro Frog USB4NeoGeo)"
 	@echo "  make n642dc_kb2040      - N64 -> Dreamcast (KB2040)"
 	@echo "  make n642dc_pico2_w     - N64 -> Dreamcast (Pi Pico 2 W)"
 	@echo "  make n642nuon_pico    - N64 -> Nuon (KB2040)"
@@ -442,6 +476,22 @@ usb2dc_kb2040:
 usb2dc_rp2040zero:
 	$(call build_app,usb2dc_rp2040zero)
 
+.PHONY: usb2ami_rp2040zero
+usb2ami_rp2040zero:
+	$(call build_app,usb2ami_rp2040zero)
+
+.PHONY: usb2ami_xiao
+usb2ami_xiao:
+	$(call build_app,usb2ami_xiao)
+
+.PHONY: usb2ami_retrofrog
+usb2ami_retrofrog:
+	$(call build_app,usb2ami_retrofrog)
+
+.PHONY: usb2ami_beetle_rp2350
+usb2ami_beetle_rp2350:
+	$(call build_app,usb2ami_beetle_rp2350)
+
 .PHONY: usb2neogeo_kb2040
 usb2neogeo_kb2040:
 	$(call build_app,usb2neogeo_kb2040)
@@ -454,9 +504,17 @@ usb2neogeo_pico:
 usb2neogeo_rp2040zero:
 	$(call build_app,usb2neogeo_rp2040zero)
 
+
+.PHONY: usb2neogeo_retrofrog
+usb2neogeo_retrofrog:
+	$(call build_app,usb2neogeo_retrofrog)
 .PHONY: n642dc_kb2040
 n642dc_kb2040:
 	$(call build_app,n642dc_kb2040)
+
+.PHONY: gc2dc_kb2040
+gc2dc_kb2040:
+	$(call build_app,gc2dc_kb2040)
 
 .PHONY: n642dc_pico2_w
 n642dc_pico2_w:
@@ -482,18 +540,6 @@ snes23do_rp2040zero:
 usb2uart_kb2040:
 	$(call build_app,usb2uart_kb2040)
 
-.PHONY: usb2ami_beetle_rp2350
-usb2ami_beetle_rp2350:
-	$(call build_app,usb2ami_beetle_rp2350)
-
-.PHONY: usb2ami_xiao
-usb2ami_xiao:
-	$(call build_app,usb2ami_xiao)
-
-.PHONY: usb2ami_retrofrog
-usb2ami_retrofrog:
-	$(call build_app,usb2ami_retrofrog)
-
 .PHONY: usb2usb_pico
 usb2usb_pico:
 	$(call build_app,usb2usb_pico)
@@ -513,6 +559,20 @@ usb2usb_feather_rp2040:
 .PHONY: usb2usb_feather_rp2040_usb_host
 usb2usb_feather_rp2040_usb_host:
 	$(call build_app,usb2usb_feather_rp2040_usb_host)
+
+.PHONY: usb2usb_remapper_v7_b
+usb2usb_remapper_v7_b:
+	$(call build_app,usb2usb_remapper_v7_b)
+
+.PHONY: usb2usb_remapper_v7_a
+usb2usb_remapper_v7_a:
+	$(call build_app,usb2usb_remapper_v7_a)
+
+.PHONY: usb2usb_remapper_v7
+usb2usb_remapper_v7:
+	$(call build_app,usb2usb_remapper_v7)
+	@echo "$(YELLOW)  NOTE: dual-RP2040 board — after flashing, disconnect and$(NC)"
+	@echo "$(YELLOW)        reconnect the board once so the host (B) MCU boots.$(NC)"
 
 .PHONY: usb2usb_feather_rp2040_max3421
 usb2usb_feather_rp2040_max3421:
@@ -537,6 +597,10 @@ bt2usb_pico_w:
 .PHONY: bt2usb_pico2_w
 bt2usb_pico2_w:
 	$(call build_app,bt2usb_pico2_w)
+
+.PHONY: bt2usb_waveshare_rp2350b_plus_w
+bt2usb_waveshare_rp2350b_plus_w:
+	$(call build_app,bt2usb_waveshare_rp2350b_plus_w)
 
 .PHONY: bt2loopy_pico_w
 bt2loopy_pico_w:
@@ -862,6 +926,18 @@ wifi2usb_pico2_w:
 snes2usb_kb2040:
 	$(call build_app,snes2usb_kb2040)
 
+.PHONY: psx2usb_qtpy
+psx2usb_qtpy:
+	$(call build_app,psx2usb_qtpy)
+
+.PHONY: psx2usb_kb2040
+psx2usb_kb2040:
+	$(call build_app,psx2usb_kb2040)
+
+.PHONY: psx2usb_pico
+psx2usb_pico:
+	$(call build_app,psx2usb_pico)
+
 .PHONY: n642usb_kb2040
 n642usb_kb2040:
 	$(call build_app,n642usb_kb2040)
@@ -885,6 +961,18 @@ gc2usb_rp2040zero:
 .PHONY: gc2usb_pico
 gc2usb_pico:
 	$(call build_app,gc2usb_pico)
+
+.PHONY: gc2eth_rp2040_eth
+gc2eth_rp2040_eth:
+	$(call build_app,gc2eth_rp2040_eth)
+
+.PHONY: gc2eth_feather_usbhost
+gc2eth_feather_usbhost:
+	$(call build_app,gc2eth_feather_usbhost)
+
+.PHONY: gc2usb_feather_usbhost
+gc2usb_feather_usbhost:
+	$(call build_app,gc2usb_feather_usbhost)
 
 .PHONY: wii2usb_kb2040
 wii2usb_kb2040:
@@ -953,6 +1041,10 @@ controller_btusb_rp2040_abb:
 .PHONY: controller_btusb_feather_rp2040
 controller_btusb_feather_rp2040:
 	$(call build_app,controller_btusb_feather_rp2040)
+
+.PHONY: controller_btusb_feather_rp2040_usb_host
+controller_btusb_feather_rp2040_usb_host:
+	$(call build_app,controller_btusb_feather_rp2040_usb_host)
 
 
 .PHONY: nes2usb_kb2040
@@ -1112,6 +1204,10 @@ flash-usb2neogeo_pico:
 flash-usb2neogeo_rp2040zero:
 	@$(MAKE) --no-print-directory _flash_app APP_NAME=usb2neogeo_rp2040zero
 
+
+.PHONY: flash-usb2neogeo_retrofrog
+flash-usb2neogeo_retrofrog:
+	@$(MAKE) --no-print-directory _flash_app APP_NAME=usb2neogeo_retrofrog
 .PHONY: flash-usb2nuon_kb2040
 flash-usb2nuon_kb2040:
 	@$(MAKE) --no-print-directory _flash_app APP_NAME=usb2nuon_kb2040
@@ -1135,6 +1231,10 @@ flash-usb2dc_rp2040zero:
 .PHONY: flash-n642dc_kb2040
 flash-n642dc_kb2040:
 	@$(MAKE) --no-print-directory _flash_app APP_NAME=n642dc_kb2040
+
+.PHONY: flash-gc2dc_kb2040
+flash-gc2dc_kb2040:
+	@$(MAKE) --no-print-directory _flash_app APP_NAME=gc2dc_kb2040
 
 .PHONY: flash-n642dc_pico2_w
 flash-n642dc_pico2_w:
@@ -1204,6 +1304,10 @@ flash-bt2usb_pico_w:
 flash-bt2usb_pico2_w:
 	@$(MAKE) --no-print-directory _flash_app APP_NAME=bt2usb_pico2_w
 
+.PHONY: flash-bt2usb_waveshare_rp2350b_plus_w
+flash-bt2usb_waveshare_rp2350b_plus_w:
+	@$(MAKE) --no-print-directory _flash_app APP_NAME=bt2usb_waveshare_rp2350b_plus_w
+
 .PHONY: flash-bt2loopy_pico_w
 flash-bt2loopy_pico_w:
 	@$(MAKE) --no-print-directory _flash_app APP_NAME=bt2loopy_pico_w
@@ -1268,6 +1372,18 @@ flash-wifi2usb_pico2_w:
 flash-snes2usb_kb2040:
 	@$(MAKE) --no-print-directory _flash_app APP_NAME=snes2usb_kb2040
 
+.PHONY: flash-psx2usb_qtpy
+flash-psx2usb_qtpy:
+	@$(MAKE) --no-print-directory _flash_app APP_NAME=psx2usb_qtpy
+
+.PHONY: flash-psx2usb_kb2040
+flash-psx2usb_kb2040:
+	@$(MAKE) --no-print-directory _flash_app APP_NAME=psx2usb_kb2040
+
+.PHONY: flash-psx2usb_pico
+flash-psx2usb_pico:
+	@$(MAKE) --no-print-directory _flash_app APP_NAME=psx2usb_pico
+
 .PHONY: flash-n642usb_kb2040
 flash-n642usb_kb2040:
 	@$(MAKE) --no-print-directory _flash_app APP_NAME=n642usb_kb2040
@@ -1287,6 +1403,18 @@ flash-gc2usb_kb2040:
 .PHONY: flash-gc2usb_pico
 flash-gc2usb_pico:
 	@$(MAKE) --no-print-directory _flash_app APP_NAME=gc2usb_pico
+
+.PHONY: flash-gc2eth_rp2040_eth
+flash-gc2eth_rp2040_eth:
+	@$(MAKE) --no-print-directory _flash_app APP_NAME=gc2eth_rp2040_eth
+
+.PHONY: flash-gc2eth_feather_usbhost
+flash-gc2eth_feather_usbhost:
+	@$(MAKE) --no-print-directory _flash_app APP_NAME=gc2eth_feather_usbhost
+
+.PHONY: flash-gc2usb_feather_usbhost
+flash-gc2usb_feather_usbhost:
+	@$(MAKE) --no-print-directory _flash_app APP_NAME=gc2usb_feather_usbhost
 
 .PHONY: flash-wii2usb_kb2040
 flash-wii2usb_kb2040:
@@ -1343,6 +1471,10 @@ flash-controller_btusb_rp2040_abb:
 .PHONY: flash-controller_btusb_feather_rp2040
 flash-controller_btusb_feather_rp2040:
 	@$(MAKE) --no-print-directory _flash_app APP_NAME=controller_btusb_feather_rp2040
+
+.PHONY: flash-controller_btusb_feather_rp2040_usb_host
+flash-controller_btusb_feather_rp2040_usb_host:
+	@$(MAKE) --no-print-directory _flash_app APP_NAME=controller_btusb_feather_rp2040_usb_host
 
 
 .PHONY: flash-nes2usb_kb2040

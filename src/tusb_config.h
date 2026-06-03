@@ -112,7 +112,13 @@
 #define CFG_TUH_HUB                 1
 #define CFG_TUH_CDC                 0
 #define CFG_TUH_HID                 8   // Max 8 HID interfaces total (2 per device typical)
+// Mass storage host: opt-in per target via CONFIG_USB_MSC. Default-off so
+// targets that don't link msc_host.c don't drag in the TinyUSB MSC class.
+#ifdef CONFIG_USB_MSC
+#define CFG_TUH_MSC                 1
+#else
 #define CFG_TUH_MSC                 0
+#endif
 #define CFG_TUH_VENDOR              0
 #define CFG_TUH_XINPUT              4   // Max 4 XInput interfaces (Xbox wireless adapter has 4 ports)
 
@@ -177,7 +183,21 @@
 
   #define CFG_TUD_MSC               0   // No mass storage
   #define CFG_TUD_MIDI              0   // No MIDI
-  #define CFG_TUD_VENDOR            0   // No vendor-specific
+  // Vendor class is opt-in: only built into the device descriptor when
+  // CONFIG_JOYBUS_BRIDGE is defined (the experimental USB-vendor
+  // GBA-link transport to a forked Dolphin — see docs/GBA_LINK_CABLE.md
+  // for status). Default builds don't pay the descriptor + endpoint
+  // overhead.
+  #ifdef CONFIG_JOYBUS_BRIDGE
+    #define CFG_TUD_VENDOR            1
+    // Larger FIFOs so we don't stall on Dolphin's multiboot bursts
+    // (~13K WRITEs streamed at near-real-time pace).
+    #define CFG_TUD_VENDOR_RX_BUFSIZE 1024
+    #define CFG_TUD_VENDOR_TX_BUFSIZE 1024
+    #define CFG_TUD_VENDOR_EPSIZE     64
+  #else
+    #define CFG_TUD_VENDOR            0
+  #endif
 
   // HID buffer sizes
   #define CFG_TUD_HID_EP_BUFSIZE    64

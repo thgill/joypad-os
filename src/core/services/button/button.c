@@ -113,10 +113,13 @@ static button_event_t fire_event(button_event_t event)
 {
     if (event != BUTTON_EVENT_NONE) {
         // Log the event
-        const char* event_names[] = {
-            "NONE", "CLICK", "DOUBLE_CLICK", "HOLD", "RELEASE"
+        // Indexes must match button_event_t enum in button.h.
+        static const char* event_names[] = {
+            "NONE", "CLICK", "DOUBLE_CLICK", "TRIPLE_CLICK", "HOLD", "RELEASE"
         };
-        printf("[button] Event: %s\n", event_names[event]);
+        const char* name = (event < (int)(sizeof(event_names)/sizeof(*event_names)))
+                           ? event_names[event] : "?";
+        printf("[button] Event: %s\n", name);
 
         // Call callback if registered
         if (event_callback) {

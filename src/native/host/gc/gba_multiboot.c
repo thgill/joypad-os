@@ -11,6 +11,7 @@
 #include "gba_multiboot.h"
 #include "joybus.h"
 #include "usb/usbd/usbd.h"
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include "pico/time.h"
@@ -222,6 +223,107 @@ bool gba_mb_detect(joybus_port_t* port)
     return id == GBA_TYPE_ID;
 }
 
+bool gba_mb_in_multiboot_wait(joybus_port_t* port)
+{
+    // STATUS handshake; expect GBA type + JSTAT.PSF0 set (BIOS multiboot
+    // ready). Distinguishes a freshly-power-cycled GBA in BIOS wait state
+    // from a GBA already running a payload (joypad / hello / etc), which
+    // also responds with the GBA type but does NOT set PSF0.
+    uint8_t cmd = 0x00;
+    uint8_t r[3];
+    if (jb_xfer(port, &cmd, 1, r, 3) < 0) return false;
+    uint16_t id = (uint16_t)r[0] | ((uint16_t)r[1] << 8);
+    if (id != GBA_TYPE_ID) return false;
+    return (r[2] & JSTAT_PSF0) != 0;
+}
+
+int gba_send_splash_cmd(joybus_port_t* port, uint8_t mode_id)
+{
+    // Magic 0xCAFE55XX where XX is the mode ID. GBA payload edge-
+    // triggers on REG_JOYRE matching this prefix. Sent as a single
+    // joybus WRITE (0x15) — the GBA's JOY_RECV register latches the
+    // 4-byte word and the payload reads it next frame.
+    uint32_t word = 0xCAFE5500u | (uint32_t)mode_id;
+    uint8_t  jstat;
+    return jb_write4(port, word, &jstat);
+}
+
+bool gba_mb_payload_already_running(joybus_port_t* port)
+{
+    // The cable's level-shifter MCU caches state across firmware
+    // restarts and the FIRST joybus xfer after our PIO init often
+    // returns stale data. Retry a few times before declaring
+    // "no payload running" so we don't spuriously fire the heavy
+    // multiboot upload after a firmware-only reboot.
+    //
+    // Polarity check: GBA type + PSF0 cleared means it's PAST the
+    // BIOS multiboot stage. A successful JOY-bus READ confirms it
+    // responds in JOY mode.
+    extern void gba_mb_detect_log_reset(void);
+    extern void gba_mb_detect_log_printf(const char* fmt, ...);
+    gba_mb_detect_log_reset();
+    gba_mb_detect_log_printf("starting payload-running probe\n");
+    for (int attempt = 0; attempt < 4; attempt++) {
+        uint8_t cmd = 0x00;
+        uint8_t r[3] = {0};
+        int rc = jb_xfer(port, &cmd, 1, r, 3);
+        gba_mb_detect_log_printf("[%d] STATUS rc=%d id=%02x%02x jstat=%02x\n",
+                                 attempt, rc, r[1], r[0], r[2]);
+        if (rc >= 0) {
+            uint16_t id = (uint16_t)r[0] | ((uint16_t)r[1] << 8);
+            if (id == GBA_TYPE_ID && !(r[2] & JSTAT_PSF0)) {
+                // Confirm via READ — needs its own small retry loop
+                // because READ also tends to glitch immediately after
+                // a fresh PIO setup.
+                for (int rd = 0; rd < 3; rd++) {
+                    uint8_t buf[4];
+                    int rrc = gba_input_read(port, buf);
+                    gba_mb_detect_log_printf("  READ[%d] rc=%d\n", rd, rrc);
+                    if (rrc >= 0) {
+                        gba_mb_detect_log_printf("→ RUNNING\n");
+                        return true;
+                    }
+                    sleep_ms(2);
+                }
+            }
+        }
+        sleep_ms(5);
+    }
+    gba_mb_detect_log_printf("→ not running, will multiboot\n");
+    return false;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Detect probe log buffer — printf alone goes to UART (not visible
+// over the USB CDC port in default kb2040 builds). Capture probe
+// traces into a static buffer that the GBADETECT CDC command dumps
+// alongside the bool result.
+// ──────────────────────────────────────────────────────────────────
+#include <stdarg.h>
+#define DETECT_LOG_CAP 2048
+static char     s_detect_log[DETECT_LOG_CAP];
+static uint16_t s_detect_log_len = 0;
+
+void gba_mb_detect_log_reset(void)
+{
+    s_detect_log_len = 0;
+    s_detect_log[0]  = '\0';
+}
+
+void gba_mb_detect_log_printf(const char* fmt, ...)
+{
+    if (s_detect_log_len >= DETECT_LOG_CAP - 1) return;
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(s_detect_log + s_detect_log_len,
+                      DETECT_LOG_CAP - s_detect_log_len, fmt, ap);
+    va_end(ap);
+    if (n > 0) s_detect_log_len += (uint16_t)n;
+    if (s_detect_log_len >= DETECT_LOG_CAP) s_detect_log_len = DETECT_LOG_CAP - 1;
+}
+
+const char* gba_mb_detect_log_get(void) { return s_detect_log; }
+
 gba_mb_result_t gba_mb_upload(joybus_port_t* port,
                               const uint8_t* rom, uint32_t len,
                               int palette, int speed, int channel)
@@ -230,14 +332,46 @@ gba_mb_result_t gba_mb_upload(joybus_port_t* port,
     if (!rom || len == 0 || len >= 0x40000) return GBA_MB_ERR_PARAMS;
     if (rom[0xac] == 0)                     return GBA_MB_ERR_PARAMS;
 
+    // Scan the rom for the GBA-side mode marker "JPMD\xff\0\0\0". If
+    // found, we'll substitute the current USB output mode into the
+    // mode byte (offset +4) during body streaming so the splash on the
+    // GBA can render the matching badge. Not found = older payload
+    // without splash support; skip silently.
+    int32_t marker_off = -1;
+    {
+        for (uint32_t k = 0; k + 8 <= len; k++) {
+            if (rom[k] == 'J' && rom[k + 1] == 'P' &&
+                rom[k + 2] == 'M' && rom[k + 3] == 'D') {
+                marker_off = (int32_t)k;
+                break;
+            }
+        }
+    }
+    const uint8_t mode_byte = (marker_off >= 0)
+                              ? (uint8_t)usbd_get_mode() : 0xFF;
+    if (marker_off >= 0) {
+        printf("[gba_mb] mode marker at offset 0x%x → patching mode=%d\n",
+               (unsigned)marker_off, (int)mode_byte);
+    }
+
     uint16_t type;
     uint8_t  js;
 
-    // Step 1: RESET handshake. After 10ms settle, do a non-reset STATUS to
-    // confirm GBA type and that PSF0 is set (BIOS multiboot ready).
-    sleep_ms(10);
-    if (!gba_handshake(port, true, &type, &js))   return GBA_MB_ERR_PROBE;
-    if (type != GBA_TYPE_ID)                       return GBA_MB_ERR_PROBE;
+    // Step 1: RESET handshake. The cable's level-shifter MCU can be
+    // wedged after a firmware reboot (it survives our reset on USB
+    // power and may still be in mid-transaction state from before).
+    // A single RESET often gets dropped on the floor; retry a few
+    // times with increasing delays to give it a chance to drain its
+    // state machine before we declare PROBE failure.
+    bool reset_ok = false;
+    for (int retry = 0; retry < 5; retry++) {
+        sleep_ms(20 + retry * 30);  // 20, 50, 80, 110, 140 ms
+        if (gba_handshake(port, true, &type, &js) && type == GBA_TYPE_ID) {
+            reset_ok = true;
+            break;
+        }
+    }
+    if (!reset_ok) return GBA_MB_ERR_PROBE;
     sleep_ms(10);
     if (!gba_handshake(port, false, &type, &js))  return GBA_MB_ERR_RESET;
     if (type != GBA_TYPE_ID)                       return GBA_MB_ERR_RESET;
@@ -352,6 +486,19 @@ gba_mb_result_t gba_mb_upload(joybus_port_t* port,
             // Channel ID at offset 0xC4
             if (i == 0xC4) plaintext = ((uint32_t)(channel & 0xff)) << 8;
 
+            // Mode-marker substitution. The marker byte is at
+            // (marker_off + 4); replace its position in the plaintext
+            // word before CRC + encryption so both host CRC and GBA
+            // RAM see the patched value.
+            if (marker_off >= 0) {
+                uint32_t mb_pos = (uint32_t)marker_off + 4;
+                if (mb_pos >= i && mb_pos < i + 4) {
+                    uint32_t shift = (mb_pos - i) * 8;
+                    plaintext = (plaintext & ~(0xFFu << shift))
+                              | ((uint32_t)mode_byte << shift);
+                }
+            }
+
             fcrc = gba_crc_step(fcrc, plaintext);
             session_key = (session_key * MAGIC_KAWA) + 1;
             uint32_t encrypted = plaintext ^ session_key;
@@ -362,7 +509,11 @@ gba_mb_result_t gba_mb_upload(joybus_port_t* port,
 
             // Pump USB device task every 256 bytes (64 words) to prevent
             // panic from EP-claim-while-stack-starved during the long upload.
+            // No-op for builds without a USB device (e.g. gc2dc, native input
+            // + native output, no usbd to pump).
+#ifdef CONFIG_USB
             if ((i & 0xFF) == 0) usbd_task();
+#endif
         }
     }
 

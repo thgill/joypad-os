@@ -6,6 +6,7 @@
 #include "profile.h"
 #include "platform/platform.h"
 #include <stdio.h>
+#include <stddef.h>
 #include <string.h>
 
 // External dependencies (feedback and visual indication)
@@ -201,7 +202,12 @@ const profile_t* profile_get_by_index(output_target_t output, uint8_t index)
 // PROFILE SWITCHING
 // ============================================================================
 
-void profile_set_active(output_target_t output, uint8_t index)
+// Shared core for the persistent (profile_set_active) and ephemeral
+// (profile_select_active) variants. persist=true writes the new index to
+// flash; persist=false updates RAM and triggers feedback only. The latter
+// is for joypad-live / crowd-control flows where flash writes per switch
+// would burn out the chip over thousands of changes per session.
+static void profile_set_active_internal(output_target_t output, uint8_t index, bool persist)
 {
     const profile_set_t* set = get_profile_set(output);
     if (!set || set->profile_count == 0 || index >= set->profile_count) {
@@ -223,30 +229,115 @@ void profile_set_active(output_target_t output, uint8_t index)
     uint8_t player_count = get_player_count ? get_player_count() : 0;
     profile_indicator_trigger(index, player_count);
 
-    // Save to flash
-    profile_save_to_flash(output);
+    if (persist) {
+        profile_save_to_flash(output);
+    }
 
     const char* name = profile_get_name(output, index);
-    printf("[profile] Switched to: %s (output=%d)\n", name ? name : "(unknown)", output);
+    printf("[profile] %s: %s (output=%d)\n",
+           persist ? "Switched" : "Selected (RAM only)",
+           name ? name : "(unknown)", output);
+}
+
+void profile_set_active(output_target_t output, uint8_t index)
+{
+    profile_set_active_internal(output, index, /*persist=*/true);
+}
+
+// Ephemeral variant: same effect for the current session, no flash write.
+// On reboot, the previously-persisted selection comes back.
+void profile_select_active(output_target_t output, uint8_t index)
+{
+    profile_set_active_internal(output, index, /*persist=*/false);
+}
+
+// Unified cycle helpers — apps with built-in profiles share the same unified
+// [built-ins, customs] index space the web config uses (see PROFILE.LIST).
+// Apps with no built-ins keep their existing custom-only cycle path.
+//
+// Index mapping:
+//   unified 0..builtin_count-1                            = built-in profiles
+//   unified builtin_count..builtin_count+custom_count-1   = custom profiles
+//
+// Flash state representation matches:
+//   flash_active = 0       → no custom selected; built-in wins per
+//                            profile_get_active_index(output)
+//   flash_active = 1..N    → custom N-1 selected (router gives this
+//                            precedence over the built-in active)
+//
+// Switching to a built-in MUST clear flash_active to 0 — otherwise the
+// runtime keeps applying the previously-selected custom on top of it.
+
+static void profile_apply_unified_index(output_target_t output,
+                                         uint8_t unified_index,
+                                         uint8_t builtin_count)
+{
+    // Use the DEFERRED variant of flash_set_active_profile_index. The
+    // SELECT+D-pad cycle hotkey can fire many times in quick succession;
+    // the immediate (flash_save_now) variant blocks ~50 ms with interrupts
+    // disabled which stalls USB host polling and console-output PIO
+    // callbacks long enough to hang the firmware on usb2gc / usb2pce /
+    // etc. Debounced save commits ~5 s after the last cycle event.
+    if (unified_index < builtin_count) {
+        // Built-in profile — clear any custom override so the built-in
+        // actually takes effect.
+        flash_set_active_profile_index_deferred(0);
+        profile_set_active(output, unified_index);
+    } else {
+        // Custom profile (flash_active is 1-based: 0=default override,
+        // 1=first custom).
+        uint8_t custom_idx = unified_index - builtin_count;
+        flash_set_active_profile_index_deferred((uint8_t)(custom_idx + 1));
+    }
+}
+
+static uint8_t profile_get_unified_active_index(output_target_t output,
+                                                  uint8_t builtin_count)
+{
+    uint8_t flash_active = flash_get_active_profile_index();
+    if (flash_active > 0) {
+        // Custom selected — return its unified slot.
+        return builtin_count + (uint8_t)(flash_active - 1);
+    }
+    // Otherwise the built-in's own active index.
+    return profile_get_active_index(output);
+}
+
+static void profile_announce_switch(output_target_t output,
+                                     uint8_t unified_index,
+                                     uint8_t builtin_count)
+{
+    leds_indicate_profile(unified_index);
+    uint8_t player_count = get_player_count ? get_player_count() : 0;
+    profile_indicator_trigger(unified_index, player_count);
+
+    const char* name = NULL;
+    if (unified_index < builtin_count) {
+        name = profile_get_name(output, unified_index);
+        printf("[profile] Built-in profile switched to: %s (index=%u)\n",
+               name ? name : "?", unified_index);
+    } else {
+        const custom_profile_t* custom = flash_get_active_custom_profile();
+        name = custom ? custom->name : "Default";
+        printf("[profile] Custom profile switched to: %s (unified=%u)\n",
+               name, unified_index);
+    }
 }
 
 void profile_cycle_next(output_target_t output)
 {
-    uint8_t count = profile_get_count(output);
+    uint8_t builtin_count = profile_get_count(output);
 
-    // If no built-in profiles, fall back to custom profiles
-    if (count == 0) {
-        uint8_t custom_count = flash_get_total_profile_count();
-        if (custom_count > 1) {
+    // Apps with no built-in profiles use the legacy custom-only cycle
+    // path (preserves existing behavior for n642dc / gc2dc / etc.).
+    if (builtin_count == 0) {
+        uint8_t total_flash = flash_get_total_profile_count();
+        if (total_flash > 1) {
             flash_cycle_profile_next();
-
-            // Trigger feedback for custom profile switch
             uint8_t new_index = flash_get_active_profile_index();
             leds_indicate_profile(new_index);
             uint8_t player_count = get_player_count ? get_player_count() : 0;
             profile_indicator_trigger(new_index, player_count);
-
-            // Get profile name for logging
             const custom_profile_t* custom = flash_get_active_custom_profile();
             const char* name = custom ? custom->name : "Default";
             printf("[profile] Custom profile switched to: %s (index=%d)\n", name, new_index);
@@ -254,28 +345,30 @@ void profile_cycle_next(output_target_t output)
         return;
     }
 
-    uint8_t current = profile_get_active_index(output);
-    uint8_t new_index = (current + 1) % count;
-    profile_set_active(output, new_index);
+    // Apps with built-in profiles: cycle the unified [built-ins, customs]
+    // space so the hotkey matches what the web config (PROFILE.LIST) shows.
+    uint8_t custom_count = (uint8_t)(flash_get_total_profile_count() - 1);
+    uint8_t total = builtin_count + custom_count;
+    if (total <= 1) return;
+
+    uint8_t current = profile_get_unified_active_index(output, builtin_count);
+    uint8_t next = (uint8_t)((current + 1) % total);
+    profile_apply_unified_index(output, next, builtin_count);
+    profile_announce_switch(output, next, builtin_count);
 }
 
 void profile_cycle_prev(output_target_t output)
 {
-    uint8_t count = profile_get_count(output);
+    uint8_t builtin_count = profile_get_count(output);
 
-    // If no built-in profiles, fall back to custom profiles
-    if (count == 0) {
-        uint8_t custom_count = flash_get_total_profile_count();
-        if (custom_count > 1) {
+    if (builtin_count == 0) {
+        uint8_t total_flash = flash_get_total_profile_count();
+        if (total_flash > 1) {
             flash_cycle_profile_prev();
-
-            // Trigger feedback for custom profile switch
             uint8_t new_index = flash_get_active_profile_index();
             leds_indicate_profile(new_index);
             uint8_t player_count = get_player_count ? get_player_count() : 0;
             profile_indicator_trigger(new_index, player_count);
-
-            // Get profile name for logging
             const custom_profile_t* custom = flash_get_active_custom_profile();
             const char* name = custom ? custom->name : "Default";
             printf("[profile] Custom profile switched to: %s (index=%d)\n", name, new_index);
@@ -283,9 +376,14 @@ void profile_cycle_prev(output_target_t output)
         return;
     }
 
-    uint8_t current = profile_get_active_index(output);
-    uint8_t new_index = (current == 0) ? (count - 1) : (current - 1);
-    profile_set_active(output, new_index);
+    uint8_t custom_count = (uint8_t)(flash_get_total_profile_count() - 1);
+    uint8_t total = builtin_count + custom_count;
+    if (total <= 1) return;
+
+    uint8_t current = profile_get_unified_active_index(output, builtin_count);
+    uint8_t prev = (current == 0) ? (uint8_t)(total - 1) : (uint8_t)(current - 1);
+    profile_apply_unified_index(output, prev, builtin_count);
+    profile_announce_switch(output, prev, builtin_count);
 }
 
 // ============================================================================
@@ -813,8 +911,8 @@ void profile_apply(const profile_t* profile,
         input_buttons &= ~JP_BUTTON_DR;   // D-pad Right
     }
 
-    // Initialize output with passthrough values
-    memset(output, 0, sizeof(profile_output_t));
+    // Zero output fields only — autofire_start_ms at the end is preserved across calls.
+    memset(output, 0, offsetof(profile_output_t, autofire_start_ms));
     output->buttons = input_buttons;  // Start with passthrough
     output->left_x = lx;
     output->left_y = ly;
@@ -913,6 +1011,23 @@ void profile_apply(const profile_t* profile,
 
         // Check if input button is pressed (includes threshold-based L2/R2)
         bool pressed = ((buttons_with_triggers & entry->input) != 0);
+
+        if (entry->autofire_period_ms > 0) {
+            uint8_t bit = __builtin_ctz(entry->input);
+            if (bit < AUTOFIRE_BUTTON_COUNT) {
+                if (pressed) {
+                    if (output->autofire_start_ms[bit] == 0)
+                        output->autofire_start_ms[bit] = platform_time_ms();
+                    uint32_t elapsed = platform_time_ms() - output->autofire_start_ms[bit];
+                    // Time within the current cycle = elapsed % period (ms).
+                    // Button ON for the first half, OFF for the second half.
+                    // e.g. 30 Hz (period=33ms): 0-16ms ON, 17-32ms OFF, 33ms new cycle ...
+                    pressed = (elapsed % entry->autofire_period_ms) < (entry->autofire_period_ms / 2);
+                } else {
+                    output->autofire_start_ms[bit] = 0;
+                }
+            }
+        }
 
         if (pressed) {
             // Set output button(s)

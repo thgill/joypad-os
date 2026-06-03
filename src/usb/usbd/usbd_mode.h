@@ -100,4 +100,10 @@ extern const usbd_mode_t gc_adapter_mode;
 uint8_t gc_adapter_mode_get_port_rumble(uint8_t port);
 #endif
 
+#if CFG_TUD_VENDOR && defined(CONFIG_JOYBUS_BRIDGE)
+// GBA Link Cable bridge — vendor-class transport for direct-to-Dolphin
+// GBA-link emulation. See gba_link_mode.c.
+extern const usbd_mode_t gba_link_mode;
+#endif
+
 #endif // USBD_MODE_H

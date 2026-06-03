@@ -1,0 +1,21 @@
+{
+  "name": "joypad-gba-bridge",
+  "version": "0.0.1-experimental",
+  "description": "Bridge Dolphin's TCP GBA link cable protocol to a real GBA over JoypadOS GC2USB.",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "joypad-gba-bridge": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "probe": "node index.js --probe-only"
+  },
+  "dependencies": {
+    "serialport": "^12.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

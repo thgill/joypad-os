@@ -15,6 +15,9 @@
 
 #include "usbd.h"
 #include "usbd_mode.h"
+#if defined(CONFIG_JOYBUS_BRIDGE)
+#include "hardware/clocks.h"  // set_sys_clock_khz — see joybus clock note in usbd_init
+#endif
 #include "descriptors/hid_descriptors.h"
 #include "descriptors/sinput_descriptors.h"
 #include "descriptors/xbox_og_descriptors.h"
@@ -27,6 +30,9 @@
 #include "descriptors/xac_descriptors.h"
 #include "descriptors/kbmouse_descriptors.h"
 #include "descriptors/gc_adapter_descriptors.h"
+#if CFG_TUD_VENDOR && defined(CONFIG_JOYBUS_BRIDGE)
+#include "descriptors/gba_link_descriptors.h"
+#endif
 #include "descriptors/pcemini_descriptors.h"
 #include "kbmouse/kbmouse.h"
 #include "drivers/tud_xid.h"
@@ -114,6 +120,7 @@ static const char* mode_names[] = {
     [USB_OUTPUT_MODE_GC_ADAPTER] = "GC Adapter",
     [USB_OUTPUT_MODE_PCEMINI] = "PCE Mini",
     [USB_OUTPUT_MODE_CDC] = "CDC Config",
+    [USB_OUTPUT_MODE_GBA_LINK] = "GBA Link (Dolphin)",
 };
 
 // ============================================================================
@@ -145,6 +152,9 @@ void usbd_register_modes(void)
     usbd_modes[USB_OUTPUT_MODE_PCEMINI] = &pcemini_mode;
 #if CFG_TUD_GC_ADAPTER
     usbd_modes[USB_OUTPUT_MODE_GC_ADAPTER] = &gc_adapter_mode;
+#endif
+#if CFG_TUD_VENDOR && defined(CONFIG_JOYBUS_BRIDGE)
+    usbd_modes[USB_OUTPUT_MODE_GBA_LINK] = &gba_link_mode;
 #endif
 }
 
@@ -353,6 +363,9 @@ bool usbd_set_mode(usb_output_mode_t mode)
         mode != USB_OUTPUT_MODE_KEYBOARD_MOUSE &&
         mode != USB_OUTPUT_MODE_GC_ADAPTER &&
         mode != USB_OUTPUT_MODE_PCEMINI &&
+#if CFG_TUD_VENDOR && defined(CONFIG_JOYBUS_BRIDGE)
+        mode != USB_OUTPUT_MODE_GBA_LINK &&
+#endif
         mode != USB_OUTPUT_MODE_CDC) {
         printf("[usbd] Mode %d not yet supported\n", mode);
         return false;
@@ -528,6 +541,14 @@ void usbd_init(void)
     printf("[usbd] USB device DISABLED\n");
     return;
 #endif
+#if defined(CONFIG_JOYBUS_BRIDGE)
+    // Joybus-bridge apps need 130 MHz before tusb_init AND before
+    // gc_host_init so USB SOF timing and the joybus PIO divider both
+    // see the final clock. Without this, the divider ends up ~4% off
+    // and GBA replies never decode (rx=000000 timeouts).
+    bool clk_ok = set_sys_clock_khz(130000, true);
+    printf("[usbd] sys_clock=130MHz set: %s\n", clk_ok ? "OK" : "FAIL");
+#endif
     printf("[usbd] Initializing USB device output\n");
 
     // Register all mode implementations
@@ -555,6 +576,9 @@ void usbd_init(void)
                 settings->usb_output_mode == USB_OUTPUT_MODE_KEYBOARD_MOUSE ||
                 settings->usb_output_mode == USB_OUTPUT_MODE_GC_ADAPTER ||
                 settings->usb_output_mode == USB_OUTPUT_MODE_PCEMINI ||
+#if CFG_TUD_VENDOR && defined(CONFIG_JOYBUS_BRIDGE)
+                settings->usb_output_mode == USB_OUTPUT_MODE_GBA_LINK ||
+#endif
                 settings->usb_output_mode == USB_OUTPUT_MODE_CDC) {
                 output_mode = (usb_output_mode_t)settings->usb_output_mode;
                 printf("[usbd] Loaded mode from flash: %s\n", mode_names[output_mode]);
@@ -681,6 +705,16 @@ void usbd_init(void)
             // CDC-only mode: no HID init needed
             break;
 
+#if CFG_TUD_VENDOR && defined(CONFIG_JOYBUS_BRIDGE)
+        case USB_OUTPUT_MODE_GBA_LINK:
+            // GBA Link mode: delegate to mode interface (claims joybus
+            // bridge from gc_host, sets up vendor RX/TX dispatch).
+            if (usbd_modes[USB_OUTPUT_MODE_GBA_LINK] && usbd_modes[USB_OUTPUT_MODE_GBA_LINK]->init) {
+                usbd_modes[USB_OUTPUT_MODE_GBA_LINK]->init();
+            }
+            break;
+#endif
+
         case USB_OUTPUT_MODE_HID:
             // Initialize HID mode via mode interface
             if (usbd_modes[USB_OUTPUT_MODE_HID] && usbd_modes[USB_OUTPUT_MODE_HID]->init) {
@@ -762,7 +796,7 @@ void usbd_task(void)
         }
 
         case USB_OUTPUT_MODE_PS3: {
-            // PS3 mode: delegate to mode interface
+            // PS3 mode: delegate to mode interface (no CDC — authentic DS3)
             const usbd_mode_t* mode = usbd_modes[USB_OUTPUT_MODE_PS3];
             if (mode && mode->is_ready && mode->is_ready()) {
                 usbd_send_report(0);
@@ -840,6 +874,17 @@ void usbd_task(void)
                     usbd_send_report(0);
                 }
             }
+            break;
+        }
+#endif
+
+#if CFG_TUD_VENDOR && defined(CONFIG_JOYBUS_BRIDGE)
+        case USB_OUTPUT_MODE_GBA_LINK: {
+            // GBA Link bridge: process CDC + drain vendor RX → joybus → vendor TX
+            cdc_task();
+            const usbd_mode_t* mode = usbd_modes[USB_OUTPUT_MODE_GBA_LINK];
+            if (mode && mode->task) mode->task();
+            // No HID report — vendor mode is bidirectional and event-driven.
             break;
         }
 #endif
@@ -1547,6 +1592,10 @@ uint8_t const *tud_descriptor_device_cb(void)
             return (uint8_t const *)&sinput_device_descriptor;
         case USB_OUTPUT_MODE_GC_ADAPTER:
             return (uint8_t const *)&gc_adapter_device_descriptor;
+#if CFG_TUD_VENDOR && defined(CONFIG_JOYBUS_BRIDGE)
+        case USB_OUTPUT_MODE_GBA_LINK:
+            return (uint8_t const *)&gba_link_device_descriptor;
+#endif
         case USB_OUTPUT_MODE_HID:
         default:
             return (uint8_t const *)&desc_device_hid;
@@ -1693,6 +1742,10 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index)
             return runtime_desc_sinput;
         case USB_OUTPUT_MODE_GC_ADAPTER:
             return gc_adapter_config_descriptor;
+#if CFG_TUD_VENDOR && defined(CONFIG_JOYBUS_BRIDGE)
+        case USB_OUTPUT_MODE_GBA_LINK:
+            return gba_link_config_descriptor;
+#endif
         case USB_OUTPUT_MODE_HID:
         default:
             return runtime_desc_hid;
@@ -1841,6 +1894,10 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid)
                 str = XAC_MANUFACTURER;
             } else if (output_mode == USB_OUTPUT_MODE_GC_ADAPTER) {
                 str = GC_ADAPTER_MANUFACTURER;
+#if CFG_TUD_VENDOR && defined(CONFIG_JOYBUS_BRIDGE)
+            } else if (output_mode == USB_OUTPUT_MODE_GBA_LINK) {
+                str = GBA_LINK_MANUFACTURER;
+#endif
             } else if (output_mode == USB_OUTPUT_MODE_CDC) {
                 str = USB_CDC_MANUFACTURER;
             } else {
@@ -1868,6 +1925,10 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid)
                 str = XAC_PRODUCT;
             } else if (output_mode == USB_OUTPUT_MODE_GC_ADAPTER) {
                 str = GC_ADAPTER_PRODUCT;
+#if CFG_TUD_VENDOR && defined(CONFIG_JOYBUS_BRIDGE)
+            } else if (output_mode == USB_OUTPUT_MODE_GBA_LINK) {
+                str = GBA_LINK_PRODUCT;
+#endif
             } else if (output_mode == USB_OUTPUT_MODE_CDC) {
                 str = USB_CDC_PRODUCT;
             } else {
@@ -1983,9 +2044,16 @@ uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t
     return len;
 }
 
+// Weak default for app_on_console_shutdown(). Apps that need to react to a
+// host "turn off controller" command (currently only PS3) override this --
+// see src/apps/bt2usb/app.c for the BT-disconnect handler.
+__attribute__((weak)) void app_on_console_shutdown(void)
+{
+}
+
 void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t const *buffer, uint16_t bufsize)
 {
-    printf("[usbd] set_report_cb: itf=%d report_id=%d type=%d len=%d mode=%d\n",
+    printf("[usbd] set_report_cb: itf=%d report_id=0x%02x type=%d len=%d mode=%d\n",
            itf, report_id, report_type, bufsize, output_mode);
 
     // SInput/KB/Mouse composite: route by interface

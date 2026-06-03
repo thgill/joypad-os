@@ -19,6 +19,24 @@ if(DEFINED ENV{JOYPAD_DEBUG})
     add_compile_definitions(CFG_TUSB_DEBUG=$ENV{JOYPAD_DEBUG})
 endif()
 
+# Experimental GBA-link USB bridge mode (forward raw joybus to a forked
+# Dolphin via a USB vendor endpoint). OFF by default — see
+# docs/GBA_LINK_CABLE.md for the status of this experiment. Builders who
+# want to try it (with a matching Dolphin fork) can enable with:
+#   cmake -DJOYPAD_ENABLE_GBA_LINK_BRIDGE=ON ..
+# When ON, gc2usb / gc2eth targets pick up CONFIG_JOYBUS_BRIDGE, the
+# vendor class gets added to the USB descriptor, and USB_OUTPUT_MODE_
+# GBA_LINK (mode 14) becomes selectable in the CDC mode menu.
+option(JOYPAD_ENABLE_GBA_LINK_BRIDGE
+       "Build experimental GBA Link Cable USB bridge mode (see docs/GBA_LINK_CABLE.md)"
+       OFF)
+if(JOYPAD_ENABLE_GBA_LINK_BRIDGE)
+    set(JOYPAD_GBA_LINK_BRIDGE_DEFS CONFIG_JOYBUS_BRIDGE=1)
+    message(STATUS "joypad: GBA Link Cable USB bridge mode ENABLED (experimental)")
+else()
+    set(JOYPAD_GBA_LINK_BRIDGE_DEFS "")
+endif()
+
 # ============================================================================
 # VERSION AND BUILD INFO
 # ============================================================================
@@ -87,6 +105,7 @@ set(CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/core/router/router.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/leds/leds.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/leds/neopixel/ws2812.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/leds/player_leds_gpio.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/storage/storage.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/storage/flash.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/button/button.c
@@ -96,6 +115,7 @@ set(CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/players/feedback.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/profiles/profile.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/profiles/profile_indicator.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/profiles/runtime_profile.c
     ${CMAKE_CURRENT_SOURCE_DIR}/platform/rp2040/platform_rp2040.c
 )
 
@@ -127,6 +147,7 @@ set(USB_HOST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbh/hid/devices/vendors/raphnet/raphnet_pce.c
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbh/hid/devices/vendors/microsoft/ms_sidewinder_dualstrike.c
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbh/hid/devices/vendors/microsoft/ms_sidewinder_commander.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbh/hid/devices/vendors/valve/steam_controller_2.c
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbh/hid/devices/generic/sinput_host.c
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbh/xinput/xinput.c
 )
@@ -224,6 +245,7 @@ set(USB_DEVICE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd/modes/xac_mode.c
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd/modes/kbmouse_mode.c
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd/modes/gc_adapter_mode.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd/modes/gba_link_mode.c
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd/cdc/cdc.c
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd/cdc/cdc_protocol.c
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd/cdc/cdc_commands.c
@@ -231,6 +253,7 @@ set(USB_DEVICE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd/drivers/tud_xinput.c
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd/drivers/tud_xbone.c
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd/drivers/xgip_protocol.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbh/xbone_auth/xbone_auth.c
     ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd/kbmouse/kbmouse.c
     # libxsm3 - Xbox Security Method 3 (LGPL-2.1-or-later)
     # https://github.com/InvoxiPlayGames/libxsm3
@@ -252,6 +275,10 @@ set(SNES_HOST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/SNESpad/src/snespad.c
 )
 
+set(PSX_HOST_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/psx/psx_host.c
+)
+
 # N64 host sources
 set(N64_HOST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/n64/n64_host.c
@@ -259,9 +286,12 @@ set(N64_HOST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/src/N64Controller.c
 )
 
-# GC host sources (GameCube controller reading)
+# GC host sources (GameCube controller reading + GBA-as-controller bridge)
 set(GC_HOST_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc/gc_host.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc/gba_multiboot.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc/gba_payload.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc/joybus_bridge.c
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/src/joybus.c
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/src/GamecubeController.c
 )
@@ -295,6 +325,11 @@ set(WII_HOST_SOURCES
 # I2C peer input sharing sources (STEMMA QT)
 set(I2C_PEER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/i2c_peer/i2c_peer.c
+)
+
+# UART peer input sharing sources (inter-MCU link, dual-RP2040 boards)
+set(UART_PEER_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/uart_peer/uart_peer.c
 )
 
 # Controller app common sources
@@ -472,6 +507,7 @@ target_include_directories(joypad_ngc PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2gc
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/gamecube
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_ngc PRIVATE ${COMMON_LIBRARIES} hardware_flash tinyusb_device)
 joypad_target_common(joypad_ngc)
@@ -501,6 +537,7 @@ target_include_directories(joypad_ngc_rp2040zero PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2gc
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/gamecube
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_ngc_rp2040zero PRIVATE ${COMMON_LIBRARIES} hardware_flash tinyusb_device)
 joypad_target_common(joypad_ngc_rp2040zero)
@@ -588,10 +625,22 @@ pico_generate_pio_header(joypad_loopy ${CMAKE_CURRENT_LIST_DIR}/native/device/lo
 
 # --- Dreamcast ---
 add_executable(joypad_dc)
-target_compile_definitions(joypad_dc PRIVATE CONFIG_DC=1 CONFIG_USB_HOST=1 CONFIG_DC_CORE1_TX=1)
+# WORKAROUND: KB2040 + Core-1 TX hits an enumeration-dropoff bug we haven't
+# root-caused (works fine on RP2040 Zero where gill validated the PR).
+# Mirror n642dc's Core-0 TX config until the underlying issue is diagnosed.
+# VMU is enabled (RAM-only — no CONFIG_SD): the 128KB vmu_ram fits the same
+# as the RP2040-Zero build (identical RP2040, identical BTstack linkage,
+# ~247KB BSS / ~16KB headroom). Persistence backend (USB MSC flash drive or
+# an onboard QSPI partition) is a follow-up; vmu_sd.c compiles to a no-op
+# without CONFIG_SD so a fresh card just reverts to the preformat default
+# (with ICONDATA) each boot.
+target_compile_definitions(joypad_dc PRIVATE CONFIG_DC=1 CONFIG_USB_HOST=1 CONFIG_NO_NEOPIXEL=1 CONFIG_VMU=1 CONFIG_VMU_QSPI=1)
 target_sources(joypad_dc PUBLIC ${COMMON_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/dreamcast_device.c
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/maple_state_machine.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/vmu.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/vmu_sd.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/vmu_storage.c
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2dc/app.c
 )
 target_include_directories(joypad_dc PUBLIC
@@ -607,7 +656,7 @@ pico_generate_pio_header(joypad_dc ${CMAKE_CURRENT_LIST_DIR}/native/device/dream
 # USB4Maple-compatible pinout: GPIO 14/15 for Maple Bus
 add_executable(joypad_dc_rp2040zero)
 target_compile_definitions(joypad_dc_rp2040zero PRIVATE
-    CONFIG_DC=1 CONFIG_USB_HOST=1 CONFIG_DC_CORE1_TX=1
+    CONFIG_DC=1 CONFIG_USB_HOST=1 CONFIG_DC_CORE1_TX=1 CONFIG_VMU=1
     MAPLE_PIN1=14
     MAPLE_PIN5=15
     WS2812_PIN=16
@@ -625,6 +674,7 @@ target_sources(joypad_dc_rp2040zero PUBLIC ${COMMON_SOURCES} ${SD_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/maple_state_machine.c
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/vmu.c
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/vmu_sd.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/vmu_storage.c
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2dc/app.c
 )
 target_include_directories(joypad_dc_rp2040zero PUBLIC
@@ -713,6 +763,30 @@ joypad_target_common(joypad_n642dc)
 pico_generate_pio_header(joypad_n642dc ${CMAKE_CURRENT_LIST_DIR}/lib/joybus-pio/src/joybus.pio)
 pico_generate_pio_header(joypad_n642dc ${CMAKE_CURRENT_LIST_DIR}/native/device/dreamcast/maple.pio)
 
+# --- GameCube to Dreamcast (KB2040) ---
+# Same PIO layout as n642dc — gc_host shares joybus.pio with the N64 driver,
+# so it uses PIO1 SM3 at offset 10 and leaves PIO1 SM0-2 for maple_rx.
+# Core-0 TX required for the same reason (joybus on PIO1 SM3).
+add_executable(joypad_gc2dc)
+target_compile_definitions(joypad_gc2dc PRIVATE CONFIG_GC2DC=1 CONFIG_DC=1 CONFIG_NO_NEOPIXEL=1 GC_PIN_DATA=29)
+target_sources(joypad_gc2dc PUBLIC ${COMMON_SOURCES}
+    ${GC_HOST_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/dreamcast_device.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/maple_state_machine.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2dc/app.c
+)
+target_include_directories(joypad_gc2dc PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2dc
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
+)
+target_link_libraries(joypad_gc2dc PRIVATE ${COMMON_LIBRARIES} hardware_dma)
+joypad_target_common(joypad_gc2dc)
+# No BTstack — native GC input, no USB host.
+pico_generate_pio_header(joypad_gc2dc ${CMAKE_CURRENT_LIST_DIR}/lib/joybus-pio/src/joybus.pio)
+pico_generate_pio_header(joypad_gc2dc ${CMAKE_CURRENT_LIST_DIR}/native/device/dreamcast/maple.pio)
+
 # --- N64 to Dreamcast (Pico 2 W) ---
 # Pinout: DC SDCKA=GPIO14, SDCKB=GPIO15 (physical pins 19/20)
 #         N64 Data=GPIO18 (physical pin 24)
@@ -800,6 +874,7 @@ add_executable(joypad_3do)
 target_compile_definitions(joypad_3do PRIVATE CONFIG_3DO=1)
 target_sources(joypad_3do PUBLIC ${COMMON_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/3do/3do_device.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/3do/3do_keyboard.c
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb23do/app.c
 )
 target_include_directories(joypad_3do PUBLIC
@@ -817,6 +892,7 @@ add_executable(joypad_snes3do)
 target_compile_definitions(joypad_snes3do PRIVATE CONFIG_SNES3DO=1)
 target_sources(joypad_snes3do PUBLIC ${COMMON_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/3do/3do_device.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/3do/3do_keyboard.c
     ${SNES_HOST_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/snes23do/app.c
 )
@@ -847,6 +923,102 @@ target_link_libraries(joypad_uart PRIVATE ${COMMON_LIBRARIES} hardware_uart)
 joypad_target_common(joypad_uart)
 joypad_add_btstack(joypad_uart)
 
+# --- usb2usb dual: HOST/PRODUCER side (B) ---
+# Native USB host + hub reads controllers; uart_peer ships events over the
+# inter-MCU UART link to the device side (A). No USB device output here.
+add_executable(joypad_usb2usb_remapper_v7_b)
+target_compile_definitions(joypad_usb2usb_remapper_v7_b PRIVATE
+    CONFIG_USB_HOST=1
+    UART_PEER_ENABLED=1
+)
+target_sources(joypad_usb2usb_remapper_v7_b PUBLIC ${COMMON_SOURCES}
+    ${UART_PEER_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb_remapper_v7_b/app.c
+)
+target_include_directories(joypad_usb2usb_remapper_v7_b PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb_remapper_v7_b
+    ${CMAKE_CURRENT_SOURCE_DIR}/uart_peer
+)
+target_link_libraries(joypad_usb2usb_remapper_v7_b PRIVATE ${COMMON_LIBRARIES} hardware_uart)
+joypad_target_common(joypad_usb2usb_remapper_v7_b)
+
+# --- usb2usb dual: DEVICE/CONSUMER side (A) ---
+# USB device output only (no USB host on this MCU); input arrives over the
+# inter-MCU UART link and is routed to the USB device.
+add_executable(joypad_usb2usb_remapper_v7_a)
+target_compile_definitions(joypad_usb2usb_remapper_v7_a PRIVATE
+    CONFIG_USB=1
+    DISABLE_USB_HOST=1
+    UART_PEER_ENABLED=1
+)
+target_sources(joypad_usb2usb_remapper_v7_a PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
+    ${UART_PEER_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb_remapper_v7_a/app.c
+)
+target_include_directories(joypad_usb2usb_remapper_v7_a PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb_remapper_v7_a
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+    ${CMAKE_CURRENT_SOURCE_DIR}/uart_peer
+)
+target_link_libraries(joypad_usb2usb_remapper_v7_a PRIVATE
+    pico_stdlib pico_multicore hardware_pio pico_rand hardware_uart
+    tinyusb_device tinyusb_board)
+joypad_target_common(joypad_usb2usb_remapper_v7_a)
+pico_enable_stdio_uart(joypad_usb2usb_remapper_v7_a 1)
+
+# --- usb2usb dual: SWD relay stage (flashes B from an embedded image) ---
+# The board's single USB-C only reaches the device side (A); the host side (B)
+# is flashed over SWD (SWCLK=GP2, SWDIO=GP3) by this RAM-resident stage. The
+# combined UF2 (A flash image + this RAM stage) is one drag-drop that flashes
+# both chips. See .dev/docs/USB2USB_HIDREMAPPER_V7_PLAN.md.
+
+# Embed B's binary as a C array (joypad_usb2usb_remapper_v7_b builds first).
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/dual_b_binary.c ${CMAKE_CURRENT_BINARY_DIR}/dual_b_binary.h
+    DEPENDS joypad_usb2usb_remapper_v7_b
+    COMMAND python3 ${CMAKE_CURRENT_LIST_DIR}/../tools/bin2carray.py
+            $<TARGET_FILE_DIR:joypad_usb2usb_remapper_v7_b>/joypad_usb2usb_remapper_v7_b.bin
+            ${CMAKE_CURRENT_BINARY_DIR}/dual_b_binary.c
+            ${CMAKE_CURRENT_BINARY_DIR}/dual_b_binary.h
+            dual_b_binary
+    VERBATIM
+)
+
+add_executable(joypad_flash_b_side
+    ${CMAKE_CURRENT_SOURCE_DIR}/swd_flash/flash_b_side.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/swd_flash/swd.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/swd_flash/flash.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/swd_flash/adi.c
+    ${CMAKE_CURRENT_BINARY_DIR}/dual_b_binary.c
+)
+target_include_directories(joypad_flash_b_side PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/swd_flash
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
+# SWD pins to the host-side (B) RP2040. remapper_v7 board: SWCLK=GP28, SWDIO=GP27
+# (upstream swd.h defaults are GP2/GP3, which are wrong for this board).
+target_compile_definitions(joypad_flash_b_side PRIVATE
+    PIN_SWDCLK=28 PIN_SWDIO=27)
+target_link_libraries(joypad_flash_b_side PRIVATE
+    pico_stdlib hardware_pio hardware_watchdog)
+pico_generate_pio_header(joypad_flash_b_side ${CMAKE_CURRENT_SOURCE_DIR}/swd_flash/swd.pio)
+pico_add_extra_outputs(joypad_flash_b_side)
+pico_set_binary_type(joypad_flash_b_side no_flash)
+
+# Combine A (flash) + flash_b_side (RAM) into one drag-drop UF2.
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/joypad_usb2usb_remapper_v7.uf2
+    DEPENDS joypad_usb2usb_remapper_v7_a joypad_flash_b_side
+    COMMAND python3 ${CMAKE_CURRENT_LIST_DIR}/../tools/combine_uf2.py
+            $<TARGET_FILE_DIR:joypad_usb2usb_remapper_v7_a>/joypad_usb2usb_remapper_v7_a.uf2
+            $<TARGET_FILE_DIR:joypad_flash_b_side>/joypad_flash_b_side.uf2
+            ${CMAKE_CURRENT_BINARY_DIR}/joypad_usb2usb_remapper_v7.uf2
+    VERBATIM
+)
+add_custom_target(joypad_usb2usb_remapper_v7
+    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/joypad_usb2usb_remapper_v7.uf2
+)
+
 # ============================================================================
 # USB HOST TO USB DEVICE APPS (USB input -> USB output)
 # ============================================================================
@@ -873,6 +1045,7 @@ target_sources(joypad_usb_feather_rp2040 PUBLIC
 )
 target_include_directories(joypad_usb_feather_rp2040 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_feather_rp2040 PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_pico_pio_usb)
 joypad_target_common(joypad_usb_feather_rp2040)
@@ -891,16 +1064,43 @@ target_compile_definitions(joypad_usb_feather_rp2040_usb_host PRIVATE
     PICO_DEFAULT_UART=0
     PICO_DEFAULT_UART_TX_PIN=0
     PICO_DEFAULT_UART_RX_PIN=1
+    # MCP-driven synthetic input over the same UART that carries stdio logs
+    # (UART0 on GPIO0/1, 115200 baud — TX/RX header pins, USB-UART bridge).
+    CONFIG_UART_HOST=1
+    UART_HOST_PERIPHERAL=uart0
+    CONFIG_UART_HOST_TX_PIN=0
+    CONFIG_UART_HOST_RX_PIN=1
+    CONFIG_UART_HOST_BAUD=115200
+    # OLED FeatherWing 128x64 (SH1107) over I2C on STEMMA QT.
+    # No MAX3421E here, so all three buttons (A=D9/GPIO9, B=D6/GPIO8,
+    # C=D5/GPIO7) are free.
+    OLED_I2C_INST=1
+    OLED_I2C_SDA_PIN=2
+    OLED_I2C_SCL_PIN=3
+    OLED_I2C_ADDR=0x3C
+    OLED_BUTTON_A_PIN=9
+    OLED_BUTTON_B_PIN=8
+    OLED_BUTTON_C_PIN=7
+    I2C_PEER_ENABLED=1
+    UART_PEER_ENABLED=1
 )
 target_sources(joypad_usb_feather_rp2040_usb_host PUBLIC
     ${COMMON_SOURCES}
     ${USB_DEVICE_SOURCES}
+    ${I2C_PEER_SOURCES}
+    ${UART_PEER_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/display.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/display_i2c.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/joy_anim.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/eyes_anim.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/uart/uart_host.c
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb/app.c
 )
 target_include_directories(joypad_usb_feather_rp2040_usb_host PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
-target_link_libraries(joypad_usb_feather_rp2040_usb_host PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_pico_pio_usb)
+target_link_libraries(joypad_usb_feather_rp2040_usb_host PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_pico_pio_usb hardware_i2c pico_i2c_slave)
 joypad_target_common(joypad_usb_feather_rp2040_usb_host)
 joypad_add_btstack(joypad_usb_feather_rp2040_usb_host)
 pico_enable_stdio_uart(joypad_usb_feather_rp2040_usb_host 1)
@@ -943,6 +1143,7 @@ target_sources(joypad_usb_feather_rp2040_max3421 PUBLIC
 )
 target_include_directories(joypad_usb_feather_rp2040_max3421 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_feather_rp2040_max3421 PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_max3421 hardware_i2c pico_i2c_slave)
 joypad_target_common(joypad_usb_feather_rp2040_max3421)
@@ -974,6 +1175,13 @@ target_compile_definitions(joypad_usb_feather_rp2040_usb_host_max3421 PRIVATE
     OLED_BUTTON_B_PIN=6
     OLED_BUTTON_C_PIN=5
     I2C_PEER_ENABLED=1
+    # MCP-driven synthetic input over the same UART that carries stdio logs
+    # (UART0 on GPIO0/1, 115200 baud — KB2040 USB-UART bridge).
+    CONFIG_UART_HOST=1
+    UART_HOST_PERIPHERAL=uart0
+    CONFIG_UART_HOST_TX_PIN=0
+    CONFIG_UART_HOST_RX_PIN=1
+    CONFIG_UART_HOST_BAUD=115200
 )
 target_sources(joypad_usb_feather_rp2040_usb_host_max3421 PUBLIC
     ${COMMON_SOURCES}
@@ -982,10 +1190,15 @@ target_sources(joypad_usb_feather_rp2040_usb_host_max3421 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/display.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/display_i2c.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/joy_anim.c
+
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/eyes_anim.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/uart/uart_host.c
+
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb/app.c
 )
 target_include_directories(joypad_usb_feather_rp2040_usb_host_max3421 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_feather_rp2040_usb_host_max3421 PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_max3421 hardware_i2c pico_i2c_slave)
 # Wrap buggy tuh_max3421_spi_xfer_api in TinyUSB BSP (hardcodes spi0 instead of MAX3421_SPI)
@@ -1008,6 +1221,7 @@ target_sources(joypad_usb_pico PUBLIC ${COMMON_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_usb_pico PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_pico PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_pico_pio_usb)
 joypad_target_common(joypad_usb_pico)
@@ -1027,6 +1241,7 @@ target_sources(joypad_usb_pico_w PUBLIC ${COMMON_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_usb_pico_w PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_pico_w PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_pico_pio_usb)
 joypad_target_common(joypad_usb_pico_w)
@@ -1046,6 +1261,7 @@ target_sources(joypad_usb_pico2_w PUBLIC ${COMMON_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_usb_pico2_w PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_pico2_w PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_pico_pio_usb)
 joypad_target_common(joypad_usb_pico2_w)
@@ -1066,6 +1282,7 @@ target_sources(joypad_usb_rp2040zero PUBLIC ${COMMON_SOURCES} ${USB_DEVICE_SOURC
 )
 target_include_directories(joypad_usb_rp2040zero PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_rp2040zero PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_pico_pio_usb)
 joypad_target_common(joypad_usb_rp2040zero)
@@ -1088,14 +1305,17 @@ target_sources(joypad_usb_rp2350usba PUBLIC ${COMMON_SOURCES} ${USB_DEVICE_SOURC
 )
 target_include_directories(joypad_usb_rp2350usba PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_usb_rp2350usba PRIVATE ${COMMON_LIBRARIES} tinyusb_device tinyusb_pico_pio_usb)
 joypad_target_common(joypad_usb_rp2350usba)
 joypad_add_btstack(joypad_usb_rp2350usba)
 
-# --- BT to USB (Pico W / Pico 2 W built-in Bluetooth) ---
-# Only build when targeting Pico W or Pico 2 W
-if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
+# --- BT to USB (Pico W / Pico 2 W / Waveshare RP2350B-Plus-W built-in Bluetooth) ---
+# Only build when targeting a board with a built-in CYW43 / RM2 radio
+if (PICO_BOARD STREQUAL "pico_w" OR
+    PICO_BOARD STREQUAL "pico2_w" OR
+    PICO_BOARD STREQUAL "waveshare_rp2350b_plus_w")
     add_executable(joypad_bt2usb)
     target_compile_definitions(joypad_bt2usb PRIVATE
         CONFIG_BT2USB=1
@@ -1120,7 +1340,8 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     )
     target_include_directories(joypad_bt2usb PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/bt2usb
-            ${CMAKE_CURRENT_SOURCE_DIR}/bt
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+        ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
         ${BTSTACK_INCLUDES}
@@ -1170,7 +1391,8 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     target_include_directories(joypad_bt2nuon PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/bt2nuon
         ${CMAKE_CURRENT_SOURCE_DIR}/native/device/nuon
-            ${CMAKE_CURRENT_SOURCE_DIR}/bt
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+        ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
         ${BTSTACK_INCLUDES}
@@ -1222,7 +1444,8 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     target_include_directories(joypad_bt2loopy PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/bt2loopy
         ${CMAKE_CURRENT_SOURCE_DIR}/native/device/loopy
-            ${CMAKE_CURRENT_SOURCE_DIR}/bt
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+        ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
         ${BTSTACK_INCLUDES}
@@ -1274,7 +1497,8 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/bt2n64
         ${CMAKE_CURRENT_SOURCE_DIR}/native/device/n64
         ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/bt
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+        ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
         ${BTSTACK_INCLUDES}
@@ -1328,7 +1552,8 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     target_include_directories(joypad_bt2wiiext PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/bt2wiiext
         ${CMAKE_CURRENT_SOURCE_DIR}/native/device/wii_ext
-            ${CMAKE_CURRENT_SOURCE_DIR}/pad
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+        ${CMAKE_CURRENT_SOURCE_DIR}/pad
         ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
@@ -1385,7 +1610,8 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/bt2gc
         ${CMAKE_CURRENT_SOURCE_DIR}/native/device/gamecube
         ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
-            ${CMAKE_CURRENT_SOURCE_DIR}/bt
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+        ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
         ${BTSTACK_INCLUDES}
@@ -1438,7 +1664,8 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     )
     target_include_directories(joypad_btusb2usb PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb
-            ${CMAKE_CURRENT_SOURCE_DIR}/bt
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+        ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
         ${BTSTACK_INCLUDES}
@@ -1490,7 +1717,8 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     )
     target_include_directories(joypad_usb2ble PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ble
-            ${CMAKE_CURRENT_SOURCE_DIR}/bt
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+        ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/ble_output
@@ -1542,6 +1770,16 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
         PICO_DEFAULT_PIO_USB_DP_PIN=16
         PIO_USB_DP_PIN_DEFAULT=16
         BOARD_TUH_RHPORT=1
+
+        # Optional: 4-LED player indicator on raw GPIOs (PS3/Switch-style).
+        # Define all four pins to enable. Active-high. LED1↔bit0, LED2↔bit1,
+        # LED3↔bit2, LED4↔bit3 of the PLAYER_LEDS[] bitmap. Player 1 lights
+        # LED1 alone, P5..P10 use the standard combo patterns. See
+        # .dev/docs/player_leds_gpio.md for wiring/usage.
+        # PLAYER_LED_PIN_1=10
+        # PLAYER_LED_PIN_2=11
+        # PLAYER_LED_PIN_3=12
+        # PLAYER_LED_PIN_4=13
     )
     target_sources(joypad_controller_btusb PUBLIC
         ${CORE_SOURCES}
@@ -1567,7 +1805,8 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     )
     target_include_directories(joypad_controller_btusb PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller_btusb
-            ${CMAKE_CURRENT_SOURCE_DIR}/pad
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+        ${CMAKE_CURRENT_SOURCE_DIR}/pad
         ${CMAKE_CURRENT_SOURCE_DIR}/bt
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/bthid
@@ -1631,7 +1870,8 @@ if (PICO_BOARD STREQUAL "pico_w" OR PICO_BOARD STREQUAL "pico2_w")
     )
     target_include_directories(joypad_wifi2usb PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/apps/wifi2usb
-            ${CMAKE_CURRENT_SOURCE_DIR}/wifi/jocp
+        ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+        ${CMAKE_CURRENT_SOURCE_DIR}/wifi/jocp
         ${CMAKE_CURRENT_SOURCE_DIR}/wifi
         ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
     )
@@ -1685,6 +1925,7 @@ target_sources(joypad_controller_btusb_rp2040_abb PUBLIC
 )
 target_include_directories(joypad_controller_btusb_rp2040_abb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller_btusb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/pad
     ${CMAKE_CURRENT_SOURCE_DIR}/bt
     ${CMAKE_CURRENT_SOURCE_DIR}/bt/btstack
@@ -1725,6 +1966,7 @@ target_sources(joypad_controller_btusb_fisherprice_v1 PUBLIC
 )
 target_include_directories(joypad_controller_btusb_fisherprice_v1 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller_btusb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/pad
 )
 target_link_libraries(joypad_controller_btusb_fisherprice_v1 PRIVATE
@@ -1748,6 +1990,7 @@ target_sources(joypad_controller_btusb_fisherprice_v2 PUBLIC
 )
 target_include_directories(joypad_controller_btusb_fisherprice_v2 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller_btusb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/pad
 )
 target_link_libraries(joypad_controller_btusb_fisherprice_v2 PRIVATE
@@ -1771,6 +2014,7 @@ target_sources(joypad_controller_btusb_alpakka PUBLIC
 )
 target_include_directories(joypad_controller_btusb_alpakka PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller_btusb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/pad
 )
 target_link_libraries(joypad_controller_btusb_alpakka PRIVATE
@@ -1788,11 +2032,46 @@ target_sources(joypad_snes2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_snes2usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/snes2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/snes
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/SNESpad/src
 )
 target_link_libraries(joypad_snes2usb PRIVATE pico_stdlib pico_multicore hardware_pio pico_rand tinyusb_device tinyusb_board)
 joypad_target_common(joypad_snes2usb)
+
+# --- PSX2USB (PS1/PS2 controller -> USB HID) ---
+add_executable(joypad_psx2usb)
+target_compile_definitions(joypad_psx2usb PRIVATE CONFIG_PSX2USB=1 CONFIG_USB=1 DISABLE_USB_HOST=1
+    USE_BOOTSEL_BUTTON=1)
+# QT Py RP2040 wiring (Adafruit learn guide): A0/A1/A2/A3 map to GPIO29/28/27/26
+# (the board numbers the analog pads in DESCENDING GPIO order). Wires:
+# A0=DAT=GP29, A1=CMD=GP28, A2=ATT=GP27, A3=CLK=GP26.
+if(PICO_BOARD STREQUAL "adafruit_qtpy_rp2040")
+    target_compile_definitions(joypad_psx2usb PRIVATE
+        PSX_PIN_DAT=29 PSX_PIN_CMD=28 PSX_PIN_ATT=27 PSX_PIN_CLK=26)
+# KB2040 wiring on the A0-A3 pads: A0=CLK=GP26, A1=ATT=GP27, A2=CMD=GP28,
+# A3=DAT=GP29. CLK/ATT (26/27) must stay consecutive for the PIO side-set.
+elseif(PICO_BOARD STREQUAL "adafruit_kb2040")
+    target_compile_definitions(joypad_psx2usb PRIVATE
+        PSX_PIN_DAT=29 PSX_PIN_CMD=28 PSX_PIN_ATT=27 PSX_PIN_CLK=26)
+# Raspberry Pi Pico wiring: DAT=GP22, CMD=GP19, ATT(LATCH)=GP21, CLK=GP20,
+# VCC=3V3, GND, 10k pull-up on DAT.
+elseif(PICO_BOARD STREQUAL "pico")
+    target_compile_definitions(joypad_psx2usb PRIVATE
+        PSX_PIN_DAT=22 PSX_PIN_CMD=19 PSX_PIN_ATT=21 PSX_PIN_CLK=20)
+endif()
+target_sources(joypad_psx2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
+    ${PSX_HOST_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/psx2usb/app.c
+)
+target_include_directories(joypad_psx2usb PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/psx2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/psx
+)
+target_link_libraries(joypad_psx2usb PRIVATE pico_stdlib pico_multicore hardware_pio hardware_dma pico_rand tinyusb_device tinyusb_board)
+pico_generate_pio_header(joypad_psx2usb ${CMAKE_CURRENT_SOURCE_DIR}/native/host/psx/psx.pio)
+joypad_target_common(joypad_psx2usb)
 
 # --- WII2N64 (Wii extension -> N64) — Pi Pico target ---
 # Pico has no NeoPixel or STEMMA QT. I2C0 on GP4/GP5, N64 data on GP2.
@@ -1815,6 +2094,7 @@ target_sources(joypad_wii2n64 PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_wii2n64 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/wii2n64
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/wii_ext
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/n64
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/wii_ext
@@ -1840,6 +2120,7 @@ target_sources(joypad_wii2gc PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_wii2gc PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/wii2gc
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/wii_ext
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/gamecube
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/wii_ext
@@ -1863,6 +2144,7 @@ target_sources(joypad_wii2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_wii2usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/wii2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/wii_ext
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/wii_ext
 )
@@ -1878,6 +2160,7 @@ target_sources(joypad_n642usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_n642usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/n642usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/n64
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
 )
@@ -1901,6 +2184,7 @@ target_sources(joypad_nuon2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 target_include_directories(joypad_nuon2usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/nuon2usb
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/nuon
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_nuon2usb PRIVATE pico_stdlib pico_multicore hardware_pio pico_rand pico_bit_ops tinyusb_device tinyusb_board)
 joypad_target_common(joypad_nuon2usb)
@@ -1912,10 +2196,13 @@ pico_generate_pio_header(joypad_nuon2usb ${CMAKE_CURRENT_LIST_DIR}/apps/nuon2usb
 
 # --- GC2USB (GameCube -> USB HID) ---
 add_executable(joypad_gc2usb)
-target_compile_definitions(joypad_gc2usb PRIVATE CONFIG_GC2USB=1 CONFIG_USB=1 DISABLE_USB_HOST=1 GC_PIN_DATA=29
+target_compile_definitions(joypad_gc2usb PRIVATE
+    CONFIG_GC2USB=1 CONFIG_USB=1 DISABLE_USB_HOST=1 GC_PIN_DATA=29
     PICO_DEFAULT_UART=0
     PICO_DEFAULT_UART_TX_PIN=12
     PICO_DEFAULT_UART_RX_PIN=13
+    USE_BOOTSEL_BUTTON=1   # KB2040 has no GP-wired user button; read BOOTSEL
+    ${JOYPAD_GBA_LINK_BRIDGE_DEFS}
 )
 target_sources(joypad_gc2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
     ${GC_HOST_SOURCES}
@@ -1923,19 +2210,28 @@ target_sources(joypad_gc2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_gc2usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
 )
 target_link_libraries(joypad_gc2usb PRIVATE pico_stdlib pico_multicore hardware_pio pico_rand tinyusb_device tinyusb_board)
 joypad_target_common(joypad_gc2usb)
+pico_enable_stdio_uart(joypad_gc2usb 1)
 pico_generate_pio_header(joypad_gc2usb ${CMAKE_CURRENT_LIST_DIR}/lib/joybus-pio/src/joybus.pio)
 
 # --- GC2USB (GameCube -> USB HID, RP2040-Zero) ---
+# Note: this target is currently NOT what `make gc2usb_rp2040zero` actually
+# builds — that uses joypad_gc2usb (GP29) with the rp2040zero board script.
+# Keeping GC_PIN_DATA=29 here so that any future Makefile rewire (or anyone
+# building this target directly) matches the wiring shipped to existing
+# customers since v2.0.0.
 add_executable(joypad_gc2usb_rp2040zero)
 target_compile_definitions(joypad_gc2usb_rp2040zero PRIVATE
     CONFIG_GC2USB=1 CONFIG_USB=1 DISABLE_USB_HOST=1
+    GC_PIN_DATA=29
     WS2812_PIN=16
     USE_BOOTSEL_BUTTON=1
+    ${JOYPAD_GBA_LINK_BRIDGE_DEFS}
 )
 target_sources(joypad_gc2usb_rp2040zero PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
     ${GC_HOST_SOURCES}
@@ -1943,6 +2239,7 @@ target_sources(joypad_gc2usb_rp2040zero PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOUR
 )
 target_include_directories(joypad_gc2usb_rp2040zero PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
 )
@@ -1954,19 +2251,125 @@ pico_generate_pio_header(joypad_gc2usb_rp2040zero ${CMAKE_CURRENT_LIST_DIR}/lib/
 # GP29 isn't broken out on the standard Pico, so use GP28 (last regular GPIO)
 # for the joybus data line.
 add_executable(joypad_gc2usb_pico)
-target_compile_definitions(joypad_gc2usb_pico PRIVATE CONFIG_GC2USB=1 CONFIG_USB=1 DISABLE_USB_HOST=1 GC_PIN_DATA=28)
+target_compile_definitions(joypad_gc2usb_pico PRIVATE
+    CONFIG_GC2USB=1 CONFIG_USB=1 DISABLE_USB_HOST=1
+    GC_PIN_DATA=28
+    BOARD_LED_PIN=25
+    USE_BOOTSEL_BUTTON=1
+    ${JOYPAD_GBA_LINK_BRIDGE_DEFS}
+    BOARD_NAME="pico"
+)
 target_sources(joypad_gc2usb_pico PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
     ${GC_HOST_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2usb/app.c
 )
 target_include_directories(joypad_gc2usb_pico PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
 )
 target_link_libraries(joypad_gc2usb_pico PRIVATE pico_stdlib pico_multicore hardware_pio pico_rand tinyusb_device tinyusb_board)
 joypad_target_common(joypad_gc2usb_pico)
 pico_generate_pio_header(joypad_gc2usb_pico ${CMAKE_CURRENT_LIST_DIR}/lib/joybus-pio/src/joybus.pio)
+
+# --- GC2ETH (GameCube/GBA -> Dolphin TCP via CH9120 Ethernet) ---
+# Waveshare RP2040-ETH (CH9120 UART-to-Ethernet variant). Joybus on
+# GP2, CH9120 on GP17-21. M1 = skeleton/heartbeat only — see
+# .dev/docs/gc2eth-ch9120-bridge.md for the full plan.
+add_executable(joypad_gc2eth)
+target_compile_definitions(joypad_gc2eth PRIVATE
+    CONFIG_GC2ETH=1 CONFIG_USB=1 CONFIG_JOYBUS_BRIDGE=1 DISABLE_USB_HOST=1
+    CONFIG_NO_NEOPIXEL=1   # board's WS2812 pin (GP25) may be unrouted on this variant
+    USE_BOOTSEL_BUTTON=1
+    GC_PIN_DATA=2
+)
+# Clone gc2usb_pico exactly: project USB stack + GC host + app. Stays
+# in the default HID-gamepad+CDC branch of tusb_config. The HID
+# gamepad is unused (we publish no router output to it) but the
+# joypad-os CDC interface enumerates as /dev/cu.usbmodem* and
+# carries debug logs via the binary protocol.
+target_sources(joypad_gc2eth PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
+    ${GC_HOST_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2eth/app.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2eth/ch9120.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2eth/wshare_ch9120.c
+)
+target_include_directories(joypad_gc2eth PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2eth
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
+)
+target_link_libraries(joypad_gc2eth PRIVATE
+    pico_stdlib pico_multicore hardware_pio hardware_uart pico_rand
+    tinyusb_device tinyusb_board
+)
+joypad_target_common(joypad_gc2eth)
+pico_generate_pio_header(joypad_gc2eth ${CMAKE_CURRENT_LIST_DIR}/lib/joybus-pio/src/joybus.pio)
+pico_enable_stdio_uart(joypad_gc2eth 1)   # USB-CDC breaks CH9120; debug via UART0 (GP0=TX, GP1=RX) @ 115200
+
+# --- GC2ETH_FEATHER (GameCube/GBA -> Dolphin TCP via W5500) ---
+# Adafruit Feather RP2040 USB Host + W5500 Ethernet FeatherWing.
+# W5500 SPI tops out at ~50µs RTT (vs CH9120's 30ms), so Madden's
+# multiboot timing budget actually fits. Same intercept-replay code as
+# gc2eth — only the transport driver changes.
+add_executable(joypad_gc2eth_feather)
+target_compile_definitions(joypad_gc2eth_feather PRIVATE
+    CONFIG_GC2ETH_FEATHER=1 CONFIG_USB=1 CONFIG_JOYBUS_BRIDGE=1 DISABLE_USB_HOST=1
+    CONFIG_NO_NEOPIXEL=1
+    USE_BOOTSEL_BUTTON=1
+    GC_PIN_DATA=4
+)
+target_sources(joypad_gc2eth_feather PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
+    ${GC_HOST_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2eth_feather/app.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2eth_feather/w5500.c
+)
+target_include_directories(joypad_gc2eth_feather PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2eth_feather
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
+)
+target_link_libraries(joypad_gc2eth_feather PRIVATE
+    pico_stdlib pico_multicore hardware_pio hardware_spi pico_rand
+    tinyusb_device tinyusb_board
+)
+joypad_target_common(joypad_gc2eth_feather)
+pico_generate_pio_header(joypad_gc2eth_feather ${CMAKE_CURRENT_LIST_DIR}/lib/joybus-pio/src/joybus.pio)
+pico_enable_stdio_usb(joypad_gc2eth_feather 1)   # CDC over USB-C for debug + remote BOOTSEL
+
+# --- GC2USB_FEATHER_USBHOST (joybus-PIO sanity test on the same hardware) ---
+# Hardware-identical sibling of gc2eth_feather, minus the W5500. Same
+# board, same GP4 wiring — but acts as a USB HID gamepad. Lets us
+# isolate "joybus + GP4 wiring works" from "TCP path works." Plug a
+# real GameCube controller into the cable's GC-end and you should see
+# a HID device on the Mac.
+add_executable(joypad_gc2usb_feather_usbhost)
+target_compile_definitions(joypad_gc2usb_feather_usbhost PRIVATE
+    CONFIG_GC2USB=1 CONFIG_USB=1 DISABLE_USB_HOST=1
+    CONFIG_NO_NEOPIXEL=1
+    USE_BOOTSEL_BUTTON=1
+    GC_PIN_DATA=4
+    ${JOYPAD_GBA_LINK_BRIDGE_DEFS}
+)
+target_sources(joypad_gc2usb_feather_usbhost PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
+    ${GC_HOST_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2usb/app.c
+)
+target_include_directories(joypad_gc2usb_feather_usbhost PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/gc2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/host/gc
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
+)
+target_link_libraries(joypad_gc2usb_feather_usbhost PRIVATE
+    pico_stdlib pico_multicore hardware_pio pico_rand
+    tinyusb_device tinyusb_board
+)
+joypad_target_common(joypad_gc2usb_feather_usbhost)
+pico_generate_pio_header(joypad_gc2usb_feather_usbhost ${CMAKE_CURRENT_LIST_DIR}/lib/joybus-pio/src/joybus.pio)
 
 # --- NEGEO2USB (NEOGEO -> USB HID) ---
 add_executable(joypad_neogeo2usb)
@@ -1977,6 +2380,7 @@ target_sources(joypad_neogeo2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_neogeo2usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/neogeo2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/arcade
 )
 target_link_libraries(joypad_neogeo2usb PRIVATE pico_stdlib pico_multicore hardware_pio pico_rand tinyusb_device tinyusb_board)
@@ -1997,6 +2401,7 @@ target_sources(joypad_neogeo2usb_rp2040zero PUBLIC ${CORE_SOURCES} ${USB_DEVICE_
 )
 target_include_directories(joypad_neogeo2usb_rp2040zero PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/neogeo2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/arcade
 )
 target_link_libraries(joypad_neogeo2usb_rp2040zero PRIVATE pico_stdlib pico_multicore hardware_pio pico_rand tinyusb_device tinyusb_board)
@@ -2018,6 +2423,7 @@ target_sources(joypad_jvs2usb_rp2040zero PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOU
 )
 target_include_directories(joypad_jvs2usb_rp2040zero PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/jvs2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/jvsio
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/jvs
 )
@@ -2033,6 +2439,7 @@ target_sources(joypad_nes2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_nes2usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/nes2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/nes
 )
 target_link_libraries(joypad_nes2usb PRIVATE pico_stdlib pico_multicore hardware_pio pico_rand tinyusb_device tinyusb_board)
@@ -2049,6 +2456,7 @@ target_sources(joypad_lodgenet2usb PUBLIC ${CORE_SOURCES} ${USB_DEVICE_SOURCES}
 )
 target_include_directories(joypad_lodgenet2usb PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/lodgenet2usb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/lodgenet
 )
 target_link_libraries(joypad_lodgenet2usb PRIVATE pico_stdlib pico_multicore hardware_pio pico_rand tinyusb_device tinyusb_board)
@@ -2110,6 +2518,7 @@ target_include_directories(joypad_lodgenet2gc PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/lodgenet
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/gamecube
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/joybus-pio/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_lodgenet2gc PRIVATE pico_stdlib pico_multicore hardware_pio hardware_flash pico_rand tinyusb_device tinyusb_board)
 joypad_target_common(joypad_lodgenet2gc)
@@ -2125,6 +2534,7 @@ pico_generate_pio_header(joypad_lodgenet2gc ${CMAKE_CURRENT_LIST_DIR}/lib/joybus
 
 set(CONTROLLER_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
     ${CMAKE_CURRENT_SOURCE_DIR}/pad
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/uart
     ${CMAKE_CURRENT_SOURCE_DIR}/native/host/uart
@@ -2217,6 +2627,7 @@ target_sources(joypad_controller_btusb_feather_rp2040 PUBLIC
 )
 target_include_directories(joypad_controller_btusb_feather_rp2040 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller_btusb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
 )
 target_link_libraries(joypad_controller_btusb_feather_rp2040 PRIVATE
     pico_stdlib pico_multicore hardware_pio hardware_i2c pico_rand tinyusb_device tinyusb_board
@@ -2224,87 +2635,113 @@ target_link_libraries(joypad_controller_btusb_feather_rp2040 PRIVATE
 joypad_target_common(joypad_controller_btusb_feather_rp2040)
 pico_enable_stdio_uart(joypad_controller_btusb_feather_rp2040 1)
 
+# Feather RP2040 USB Host (#5723) variant of controller_btusb. Same JoyWing +
+# OLED FeatherWing wiring on STEMMA QT (I2C1 = GP2/3). The onboard PIO USB
+# host port (DP=GP16, DM=GP17, VBUSEN=GP18) accepts USB HID/X-input
+# controllers as additional input — they merge with JoyWing/pad input into
+# the same composite USB device output. CONFIG_UART_HOST lets joypad-mcp
+# drive synthetic input over the TX/RX header.
+add_executable(joypad_controller_btusb_feather_rp2040_usb_host)
+target_compile_definitions(joypad_controller_btusb_feather_rp2040_usb_host PRIVATE
+    CONFIG_CONTROLLER_BTUSB=1
+    CONFIG_USB=1
+    CONFIG_PAD_INPUT=1
+    BOARD_FEATHER_RP2040=1
+    USE_BOOTSEL_BUTTON=1
+    REQUIRE_BLE_OUTPUT=0
+    SENSOR_PAD=1
+    SENSOR_JOYWING=1
+    PAD_CONFIG_BOOT_WATCHDOG=1
+    PICO_DEFAULT_UART=0
+    PICO_DEFAULT_UART_TX_PIN=0
+    PICO_DEFAULT_UART_RX_PIN=1
+    # PIO USB host — onboard host port. D+ is GP16 (D- implicitly GP17,
+    # PIO-USB always uses DP+1). VBUS load switch on GP18, active high.
+    # Native USB peripheral is RHPort 0 (we use it as the device output);
+    # PIO USB takes RHPort 1 for host.
+    PICO_DEFAULT_PIO_USB_DP_PIN=16
+    PICO_DEFAULT_PIO_USB_VBUSEN_PIN=18
+    PICO_DEFAULT_PIO_USB_VBUSEN_STATE=1
+    BOARD_TUH_RHPORT=1
+    USBR_CDC_DEBUG=1
+    # PIO assignment on this board (no CYW43): pico-pio-usb on PIO1, NeoPixel
+    # on PIO0 (its default). Do NOT define CONFIG_NEOPIXEL_USE_PIO1 here — it
+    # would put NeoPixel on the same PIO as PIO-USB and break enumeration
+    # (PIO instruction memory + state machine collisions).
+    # OLED FeatherWing 128x64 (SH1107) over I2C on STEMMA QT
+    OLED_I2C_INST=1
+    OLED_I2C_SDA_PIN=2
+    OLED_I2C_SCL_PIN=3
+    OLED_I2C_ADDR=0x3C
+    OLED_BUTTON_A_PIN=9
+    OLED_BUTTON_B_PIN=8
+    OLED_BUTTON_C_PIN=7
+    # MCP-driven synthetic input over the same UART that carries stdio logs
+    # (UART0 on GPIO0/1, 115200 baud — TX/RX header pins, USB-UART bridge).
+    CONFIG_UART_HOST=1
+    UART_HOST_PERIPHERAL=uart0
+    CONFIG_UART_HOST_TX_PIN=0
+    CONFIG_UART_HOST_RX_PIN=1
+    CONFIG_UART_HOST_BAUD=115200
+)
+target_sources(joypad_controller_btusb_feather_rp2040_usb_host PUBLIC
+    ${CORE_SOURCES}
+    ${USB_HOST_SOURCES}
+    ${USB_DEVICE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/stubs_peripheral.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/joywing/joywing_input.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/drivers/seesaw/seesaw.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/platform/rp2040/platform_i2c_rp2040.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/display_i2c.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/joy_anim.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/eyes_anim.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/menu.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller_btusb/app.c
+)
+target_include_directories(joypad_controller_btusb_feather_rp2040_usb_host PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/controller_btusb
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+)
+target_link_libraries(joypad_controller_btusb_feather_rp2040_usb_host PRIVATE
+    pico_stdlib pico_multicore pico_rand
+    hardware_pio hardware_i2c hardware_adc hardware_pwm hardware_spi
+    tinyusb_device tinyusb_board tinyusb_host tinyusb_pico_pio_usb xinput_host
+)
+joypad_target_common(joypad_controller_btusb_feather_rp2040_usb_host)
+pico_enable_stdio_uart(joypad_controller_btusb_feather_rp2040_usb_host 1)
+
 # ============================================================================
 # USB2AMI (USB -> Amiga/Atari DE9, RP2040 Zero)
 # DE9: UP=GP2 DOWN=GP3 LEFT=GP4 RIGHT=GP5 CLK=GP6 JOYMODE=GP7 DATA=GP8
 # TXS0108E level shifting (3.3V <-> 5V)
 # ============================================================================
 
-# ============================================================================
-# USB2AMI Retro Frog custom PCB (bare RP2040, GP0/GP1 PIO USB)
-# ============================================================================
-
-add_executable(joypad_ami_retrofrog)
-target_compile_definitions(joypad_ami_retrofrog PRIVATE
+add_executable(joypad_ami_rp2040zero)
+target_compile_definitions(joypad_ami_rp2040zero PRIVATE
     CONFIG_AMIGA=1
-    CONFIG_USB=1
-    CONFIG_PIO_USB_DP_PIN=0
-    PICO_DEFAULT_PIO_USB_DP_PIN=0
-    BOARD_TUH_RHPORT=1
-    WS2812_PIN=12
-    REQUIRE_FLASH_SETTINGS=1
-    DISABLE_BUTTON_SERVICE=1
-    # DE9 signals
+    CONFIG_USB_HOST=1
+    WS2812_PIN=16
+    USE_BOOTSEL_BUTTON=1
     AMIGA_PIN_UP=2
     AMIGA_PIN_DOWN=3
     AMIGA_PIN_LEFT=4
     AMIGA_PIN_RIGHT=5
     AMIGA_PIN_CLK=6
-    AMIGA_PIN_DATA=7
-    AMIGA_PIN_JOYMODE=8
+    AMIGA_PIN_JOYMODE=7
+    AMIGA_PIN_DATA=8
 )
-target_sources(joypad_ami_retrofrog PUBLIC ${COMMON_SOURCES}
-    ${USB_DEVICE_SOURCES}
+target_sources(joypad_ami_rp2040zero PUBLIC ${COMMON_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga/amiga_device.c
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ami/app.c
 )
-target_include_directories(joypad_ami_retrofrog PUBLIC
+target_include_directories(joypad_ami_rp2040zero PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ami
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga
 )
-target_link_libraries(joypad_ami_retrofrog PRIVATE ${COMMON_LIBRARIES} pico_multicore tinyusb_device tinyusb_pico_pio_usb)
-joypad_target_common(joypad_ami_retrofrog)
-joypad_add_btstack(joypad_ami_retrofrog)
-pico_enable_stdio_uart(joypad_ami_retrofrog 0)
-pico_enable_stdio_usb(joypad_ami_retrofrog 0)
-
-# ============================================================================
-# USB2AMI (USB -> Amiga/Atari DE9, DFRobot Beetle RP2350)
-# DE9: UP=2 DOWN=13 LEFT=3 RIGHT=14 CLK=6 DATA=7 JOYMODE=8
-# LED: GPIO25 (onboard blue LED)
-# ============================================================================
-add_executable(joypad_ami_beetle_rp2350)
-target_compile_definitions(joypad_ami_beetle_rp2350 PRIVATE
-    CONFIG_AMIGA=1
-    CONFIG_USB_HOST=1
-    CONFIG_NO_NEOPIXEL=1
-    BOARD_LED_PIN=25
-    REQUIRE_FLASH_SETTINGS=1
-    DISABLE_BUTTON_SERVICE=1
-    # DE9 signals
-    AMIGA_PIN_UP=0
-    AMIGA_PIN_DOWN=1
-    AMIGA_PIN_LEFT=4
-    AMIGA_PIN_RIGHT=5
-    AMIGA_PIN_CLK=8
-    AMIGA_PIN_DATA=9
-    AMIGA_PIN_JOYMODE=16
-    PICO_DEFAULT_SYS_CLK_HZ=48000000
-)
-target_sources(joypad_ami_beetle_rp2350 PUBLIC ${COMMON_SOURCES}
-    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga/amiga_device.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ami/app.c
-)
-target_include_directories(joypad_ami_beetle_rp2350 PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ami
-    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga
-)
-target_link_libraries(joypad_ami_beetle_rp2350 PRIVATE ${COMMON_LIBRARIES} pico_multicore)
-joypad_target_common(joypad_ami_beetle_rp2350)
-joypad_add_btstack(joypad_ami_beetle_rp2350)
-pico_enable_stdio_uart(joypad_ami_beetle_rp2350 0)
-pico_enable_stdio_usb(joypad_ami_beetle_rp2350 0)
-
+target_link_libraries(joypad_ami_rp2040zero PRIVATE ${COMMON_LIBRARIES} pico_multicore)
+joypad_target_common(joypad_ami_rp2040zero)
+joypad_add_btstack(joypad_ami_rp2040zero)
 
 # ============================================================================
 # USB2AMI (USB -> Amiga/Atari DE9, XIAO RP2040)
@@ -2340,6 +2777,83 @@ joypad_target_common(joypad_ami_xiao)
 joypad_add_btstack(joypad_ami_xiao)
 pico_enable_stdio_uart(joypad_ami_xiao 0)
 pico_enable_stdio_usb(joypad_ami_xiao 0)
+
+# ============================================================================
+# USB2AMI (USB -> Amiga/Atari DE9, Retro Frog Custom RP2040 PCB)
+# DE9: UP=2 DOWN=13 LEFT=3 RIGHT=14 CLK=6 DATA=7 JOYMODE=8
+# ============================================================================
+add_executable(joypad_ami_retrofrog)
+target_compile_definitions(joypad_ami_retrofrog PRIVATE
+    CONFIG_AMIGA=1
+    CONFIG_USB=1
+    CONFIG_PIO_USB_DP_PIN=0
+    PICO_DEFAULT_PIO_USB_DP_PIN=0
+    BOARD_TUH_RHPORT=1
+    CONFIG_NEOPIXEL_USE_PIO1=1
+    WS2812_PIN=12
+    REQUIRE_FLASH_SETTINGS=1
+    DISABLE_BUTTON_SERVICE=1
+    # DE9 signals
+    AMIGA_PIN_UP=2
+    AMIGA_PIN_DOWN=13
+    AMIGA_PIN_LEFT=3
+    AMIGA_PIN_RIGHT=14
+    AMIGA_PIN_CLK=6
+    AMIGA_PIN_DATA=7
+    AMIGA_PIN_JOYMODE=8
+)
+target_sources(joypad_ami_retrofrog PUBLIC ${COMMON_SOURCES}
+    ${USB_DEVICE_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga/amiga_device.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ami/app.c
+)
+target_include_directories(joypad_ami_retrofrog PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ami
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga
+    ${CMAKE_CURRENT_SOURCE_DIR}/usb/usbd
+)
+target_link_libraries(joypad_ami_retrofrog PRIVATE ${COMMON_LIBRARIES} pico_multicore tinyusb_device tinyusb_pico_pio_usb)
+joypad_target_common(joypad_ami_retrofrog)
+joypad_add_btstack(joypad_ami_retrofrog)
+pico_enable_stdio_uart(joypad_ami_retrofrog 0)
+pico_enable_stdio_usb(joypad_ami_retrofrog 0)
+
+# ============================================================================
+# USB2AMI (USB -> Amiga/Atari DE9, DFRobot Beetle RP2350)
+# DE9: UP=0 DOWN=1 LEFT=4 RIGHT=5 CLK=8 DATA=9 JOYMODE=16
+# LED: GPIO25 (onboard blue LED)
+# ============================================================================
+add_executable(joypad_ami_beetle_rp2350)
+target_compile_definitions(joypad_ami_beetle_rp2350 PRIVATE
+    CONFIG_AMIGA=1
+    CONFIG_USB_HOST=1
+    CONFIG_NO_NEOPIXEL=1
+    BOARD_LED_PIN=25
+    REQUIRE_FLASH_SETTINGS=1
+    DISABLE_BUTTON_SERVICE=1
+    # DE9 signals
+    AMIGA_PIN_UP=0
+    AMIGA_PIN_DOWN=1
+    AMIGA_PIN_LEFT=4
+    AMIGA_PIN_RIGHT=5
+    AMIGA_PIN_CLK=8
+    AMIGA_PIN_DATA=9
+    AMIGA_PIN_JOYMODE=16
+    PICO_DEFAULT_SYS_CLK_HZ=48000000
+)
+target_sources(joypad_ami_beetle_rp2350 PUBLIC ${COMMON_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga/amiga_device.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ami/app.c
+)
+target_include_directories(joypad_ami_beetle_rp2350 PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2ami
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga
+)
+target_link_libraries(joypad_ami_beetle_rp2350 PRIVATE ${COMMON_LIBRARIES} pico_multicore)
+joypad_target_common(joypad_ami_beetle_rp2350)
+joypad_add_btstack(joypad_ami_beetle_rp2350)
+pico_enable_stdio_uart(joypad_ami_beetle_rp2350 0)
+pico_enable_stdio_usb(joypad_ami_beetle_rp2350 0)
 
 # ============================================================================
 # DEBUG BUILD CONFIGURATION

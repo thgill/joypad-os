@@ -86,21 +86,39 @@ typedef struct {
 } __attribute__((packed)) _3do_joystick_report;
 
 // 3DO Mouse Report (4 bytes / 32 bits)
-// Mouse with relative motion and buttons
+// Layout matches Portfolio OS MouseDriver.c parsing:
+//   rawBits = base[0]<<24 | base[1]<<16 | base[2]<<8 | base[3]
+//   X delta = rawBits & 0x3FF              (bits  0..9)  → X[0..7]=base[3], X[8..9]=base[2] bits 0..1
+//   Y delta = (rawBits >> 10) & 0x3FF      (bits 10..19) → Y[0..5]=base[2] bits 2..7, Y[6..9]=base[1] bits 0..3
+//   Buttons = (rawBits << 8) & 0xF0000000  (base[1] bits 4..7)
+// Both deltas are 10-bit signed two's complement (driver sign-extends bit 9).
 typedef struct {
-  uint8_t id;           // Device ID (0x49)
+  uint8_t id;             // 0x49
 
-  uint8_t dy_up     : 4;  // Y delta upper nibble
-  uint8_t shift     : 1;  // Shift button
-  uint8_t right     : 1;  // Right mouse button
-  uint8_t middle    : 1;  // Middle mouse button
-  uint8_t left      : 1;  // Left mouse button
+  uint8_t dy_up     : 4;  // Y[9..6] (top 4 bits, bit 9 = sign)
+  uint8_t shift     : 1;
+  uint8_t right     : 1;
+  uint8_t middle    : 1;
+  uint8_t left      : 1;
 
-  uint8_t dx_up     : 2;  // X delta upper 2 bits
-  uint8_t dy_low    : 6;  // Y delta lower 6 bits
+  uint8_t dx_up     : 2;  // X[9..8] (top 2 bits, bit 9 = sign)
+  uint8_t dy_low    : 6;  // Y[5..0]
 
-  uint8_t dx_low;         // X delta lower 8 bits
+  uint8_t dx_low;         // X[7..0]
 } __attribute__((packed)) _3do_mouse_report;
+
+// 3DO Keyboard Report (3 bytes / 24 bits, PBUS field allocation { 24, 16 }).
+// ID must satisfy (id & 0x3F) == 0x0B so the broker's BitTable lookup
+// (EventBroker.c line 1657: BitTable[streamByte & 0x3F]) returns the
+// keyboard slot { 24, 16 }. We use 0x4B; the driverlet's stub accepted 0x02
+// too but 0x02 indexes BitTable[2] = light gun { 32, 8 }, so the broker
+// would over-read by one byte and corrupt the rest of the daisy chain
+// (including any extension pods downstream).
+typedef struct {
+  uint8_t id;        // 0x4B
+  uint8_t scancode;  // current PS/2 byte, held across frames until the driverlet sees a change
+  uint8_t reserved;  // 0 (not consumed)
+} __attribute__((packed)) _3do_keyboard_report;
 
 // 3DO Silly Control Pad Report (2 bytes / 16 bits)
 // Used for arcade JAMMA integration (Orbatak, etc.)
@@ -168,12 +186,14 @@ void __not_in_flash_func(update_3do_report)(uint8_t player_index);
 _3do_joypad_report new_3do_joypad_report(void);
 _3do_joystick_report new_3do_joystick_report(void);
 _3do_mouse_report new_3do_mouse_report(void);
+_3do_keyboard_report new_3do_keyboard_report(void);
 _3do_silly_report new_3do_silly_report(void);
 
 // Report update functions
 void update_3do_joypad(_3do_joypad_report report, uint8_t instance);
 void update_3do_joystick(_3do_joystick_report report, uint8_t instance);
 void update_3do_mouse(_3do_mouse_report report, uint8_t instance);
+void update_3do_keyboard(_3do_keyboard_report report, uint8_t instance);
 void update_3do_silly(_3do_silly_report report, uint8_t instance);
 
 // Mode management

@@ -39,7 +39,10 @@
 #define APP_MAX_ROUTES 8                   // App-specific route limit (router uses MAX_ROUTES)
 
 // Input transformations
-#define TRANSFORM_FLAGS (TRANSFORM_MOUSE_TO_ANALOG)  // Mouse → analog stick
+// No mouse-to-analog: mouse input now routes per-slot to a 3DO mouse output
+// (ID 0x49) via update_3do_report; the transform would zero delta_x/delta_y
+// before the 3DO output could read them.
+#define TRANSFORM_FLAGS 0
 
 // ============================================================================
 // PLAYER MANAGEMENT

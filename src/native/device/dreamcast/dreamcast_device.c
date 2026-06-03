@@ -15,7 +15,9 @@
 
 #include "dreamcast_device.h"
 #include "maple_state_machine.h"
+#ifdef CONFIG_VMU
 #include "vmu.h"
+#endif
 #include "maple.pio.h"
 #include "core/output_interface.h"
 #include "core/router/router.h"
@@ -236,6 +238,28 @@ static FAllInfoPacket AllInfoPacket;
 static FAllInfoPacket PuruPuruAllInfoPacket;
 static FControllerPacket ControllerPacket;
 static FACKPacket ACKPacket;
+
+#ifdef CONFIG_VMU
+// Shadow packets — built at init with VMU address, never modified after
+// dreamcast_enable_vmu() switches pointers atomically (safe on Cortex-M0+)
+static FInfoPacket InfoPacket_vmu;
+static FAllInfoPacket AllInfoPacket_vmu;
+static FControllerPacket ControllerPacket_vmu;
+static FACKPacket ACKPacket_vmu;
+
+// Pointers used by Core 1 — atomic pointer switch in dreamcast_enable_vmu()
+static FInfoPacket * volatile pInfoPacket = &InfoPacket;
+static FAllInfoPacket * volatile pAllInfoPacket = &AllInfoPacket;
+static FControllerPacket * volatile pControllerPacket = &ControllerPacket;
+static FACKPacket * volatile pACKPacket = &ACKPacket;
+#else
+// Non-VMU builds: pointer indirection unused; map to direct packet refs so
+// we don't have to wrap every send-site reference in #ifdef.
+#define pInfoPacket (&InfoPacket)
+#define pAllInfoPacket (&AllInfoPacket)
+#define pControllerPacket (&ControllerPacket)
+#define pACKPacket (&ACKPacket)
+#endif
 static FPuruPuruDeviceInfoPacket PuruPuruDeviceInfoPacket;
 static FPuruPuruInfoPacket PuruPuruInfoPacket;
 static FPuruPuruConditionPacket PuruPuruConditionPacket;
@@ -312,15 +336,17 @@ static uint32_t __not_in_flash_func(CalcCRC)(const uint32_t *Words, uint32_t Num
 // PACKET BUILDERS
 // ============================================================================
 
-// Controller address — initially advertises no sub-peripherals
-// VMU sub-peripheral (0x01) is added dynamically when VMU is ready via dreamcast_enable_vmu()
+// Controller address — VMU builds start without sub-peripherals and add VMU
+// (sub 0) + PuruPuru (sub 1) atomically once VMU is ready. Non-VMU builds
+// keep the pre-PR behavior of advertising controller + PuruPuru directly.
+#ifdef CONFIG_VMU
 #define ADDRESS_CONTROLLER_ONLY     (ADDRESS_CONTROLLER)
 #define ADDRESS_CONTROLLER_AND_VMU  (ADDRESS_CONTROLLER | ADDRESS_SUBPERIPHERAL0 | ADDRESS_SUBPERIPHERAL1)
-
-// Current advertisement — starts as controller only, updated when VMU ready
 static uint8_t current_controller_address = ADDRESS_CONTROLLER_ONLY;
-
 #define ADDRESS_CONTROLLER_AND_SUBS (current_controller_address)
+#else
+#define ADDRESS_CONTROLLER_AND_SUBS (ADDRESS_CONTROLLER | ADDRESS_SUBPERIPHERAL1)
+#endif
 
 static void BuildInfoPacket(void)
 {
@@ -518,21 +544,21 @@ static void BuildACKPacket(void)
     ACKPacket.CRC = CalcCRC((uint32_t *)&ACKPacket.Header, sizeof(ACKPacket) / sizeof(uint32_t) - 2);
 }
 
+#ifdef CONFIG_VMU
 // Enable VMU advertisement — call once VMU is ready to respond
-// Rebuilds controller packets to include ADDRESS_SUBPERIPHERAL0
-// The DC will then query sub-peripheral 0 and get our VMU Device Info response
+// Switches packet pointers atomically — no rebuild during live operation
+// Safe on Cortex-M0+: pointer writes are atomic for naturally-aligned 32-bit values
 void dreamcast_enable_vmu(void)
 {
+    // Switch to pre-built VMU versions atomically
+    pInfoPacket = &InfoPacket_vmu;
+    pAllInfoPacket = &AllInfoPacket_vmu;
+    pControllerPacket = &ControllerPacket_vmu;
+    pACKPacket = &ACKPacket_vmu;
     current_controller_address = ADDRESS_CONTROLLER_AND_VMU;
-    BuildInfoPacket();
-    BuildAllInfoPacket();
-    BuildControllerPacket();
-    // Rebuild ACK packet with updated address so CMD_RESET_DEVICE
-    // doesn't need to modify it at runtime (which causes corruption)
-    ACKPacket.Header.Origin = ADDRESS_CONTROLLER_AND_VMU;
-    ACKPacket.CRC = CalcCRC((uint32_t *)&ACKPacket.Header, sizeof(ACKPacket) / sizeof(uint32_t) - 2);
     printf("[DC] VMU advertisement enabled (addr 0x%02X)\n", current_controller_address);
 }
+#endif
 
 // ============================================================================
 // PACKET SENDING
@@ -567,19 +593,19 @@ static void __not_in_flash_func(SendPacketVMU)(const uint32_t *Words, uint32_t N
 
 static void __not_in_flash_func(SendControllerStatus)(void)
 {
-    // Update controller state from our state
-    ControllerPacket.Controller.Buttons = dc_state[0].buttons;
-    ControllerPacket.Controller.RightTrigger = dc_state[0].rt;
-    ControllerPacket.Controller.LeftTrigger = dc_state[0].lt;
-    ControllerPacket.Controller.JoyX = dc_state[0].joy_x;
-    ControllerPacket.Controller.JoyY = dc_state[0].joy_y;
-    ControllerPacket.Controller.JoyX2 = dc_state[0].joy2_x;
-    ControllerPacket.Controller.JoyY2 = dc_state[0].joy2_y;
+    // Update controller state via pointer — works for both controller-only and VMU versions
+    pControllerPacket->Controller.Buttons = dc_state[0].buttons;
+    pControllerPacket->Controller.RightTrigger = dc_state[0].rt;
+    pControllerPacket->Controller.LeftTrigger = dc_state[0].lt;
+    pControllerPacket->Controller.JoyX = dc_state[0].joy_x;
+    pControllerPacket->Controller.JoyY = dc_state[0].joy_y;
+    pControllerPacket->Controller.JoyX2 = dc_state[0].joy2_x;
+    pControllerPacket->Controller.JoyY2 = dc_state[0].joy2_y;
 
     // Recalculate CRC
-    ControllerPacket.CRC = CalcCRC((uint32_t *)&ControllerPacket.Header, sizeof(ControllerPacket) / sizeof(uint32_t) - 2);
+    pControllerPacket->CRC = CalcCRC((uint32_t *)&pControllerPacket->Header, sizeof(ControllerPacket) / sizeof(uint32_t) - 2);
 
-    SendPacket((uint32_t *)&ControllerPacket, sizeof(ControllerPacket) / sizeof(uint32_t));
+    SendPacket((uint32_t *)pControllerPacket, sizeof(ControllerPacket) / sizeof(uint32_t));
 }
 
 // ============================================================================
@@ -620,8 +646,7 @@ static bool __not_in_flash_func(ConsumePacket)(uint32_t Size)
         switch (Header->Command) {
         case CMD_RESET_DEVICE:
             // ACK with current controller address (includes VMU sub-peripheral when active)
-            ACKPacket.Header.Origin = ADDRESS_CONTROLLER_AND_SUBS;
-            ACKPacket.CRC = CalcCRC((uint32_t *)&ACKPacket.Header, sizeof(ACKPacket) / sizeof(uint32_t) - 2);
+            // pACKPacket already has the correct origin for current state
             NextPacketSend = SEND_ACK;
             return true;
 
@@ -649,14 +674,13 @@ static bool __not_in_flash_func(ConsumePacket)(uint32_t Size)
             break;
         }
     }
+#ifdef CONFIG_VMU
     // Handle VMU (memory card) at slot 0 — address 0x01
     else if (DestPeripheral == ADDRESS_SUBPERIPHERAL0) {
         switch (Header->Command) {
         case CMD_RESET_DEVICE:
             cmd_vmu_reset++;
-            ACKPacket.Header.Origin = ADDRESS_SUBPERIPHERAL0;
-            ACKPacket.CRC = CalcCRC((uint32_t *)&ACKPacket.Header, sizeof(ACKPacket) / sizeof(uint32_t) - 2);
-            NextPacketSend = SEND_ACK;
+            NextPacketSend = SEND_VMU_ACK;  // vmu_ack_pkt has origin=ADDRESS_SUBPERIPHERAL0
             return true;
 
         case CMD_DEVICE_REQUEST:
@@ -684,35 +708,26 @@ static bool __not_in_flash_func(ConsumePacket)(uint32_t Size)
         case CMD_BLOCK_WRITE:
             if (Header->NumWords >= 2 && __builtin_bswap32(PacketData[0]) == FUNC_MEMORY_CARD) {
                 vmu_handle_block_write(PacketData, Header->NumWords);
-                ACKPacket.Header.Origin = ADDRESS_SUBPERIPHERAL0;
-                ACKPacket.CRC = CalcCRC((uint32_t *)&ACKPacket.Header, sizeof(ACKPacket) / sizeof(uint32_t) - 2);
-                NextPacketSend = SEND_ACK;
+                NextPacketSend = SEND_VMU_ACK;  // Use dedicated VMU ACK (origin=0x01)
                 return true;
             }
             break;
 
         case CMD_BLOCK_COMPLETE_WRITE:
             vmu_handle_write_complete();
-            ACKPacket.Header.Origin = ADDRESS_SUBPERIPHERAL0;
-            ACKPacket.Header.Destination = 0x00;
-            ACKPacket.CRC = CalcCRC((uint32_t *)&ACKPacket.Header, sizeof(ACKPacket) / sizeof(uint32_t) - 2);
-            NextPacketSend = SEND_VMU_WRITE_COMPLETE_ACK;
+            NextPacketSend = SEND_VMU_WRITE_COMPLETE_ACK;  // Use dedicated VMU ACK
             return true;
 
         case CMD_GET_CONDITION:
             if (Header->NumWords >= 1 && __builtin_bswap32(PacketData[0]) == FUNC_TIMER) {
-                ACKPacket.Header.Origin = ADDRESS_SUBPERIPHERAL0;
-                ACKPacket.CRC = CalcCRC((uint32_t *)&ACKPacket.Header, sizeof(ACKPacket) / sizeof(uint32_t) - 2);
-                NextPacketSend = SEND_ACK;
+                NextPacketSend = SEND_VMU_ACK;
                 return true;
             }
             break;
 
         case CMD_SET_CONDITION:
             if (Header->NumWords >= 1 && __builtin_bswap32(PacketData[0]) == FUNC_TIMER) {
-                ACKPacket.Header.Origin = ADDRESS_SUBPERIPHERAL0;
-                ACKPacket.CRC = CalcCRC((uint32_t *)&ACKPacket.Header, sizeof(ACKPacket) / sizeof(uint32_t) - 2);
-                NextPacketSend = SEND_ACK;
+                NextPacketSend = SEND_VMU_ACK;
                 return true;
             }
             break;
@@ -721,6 +736,7 @@ static bool __not_in_flash_func(ConsumePacket)(uint32_t Size)
             break;
         }
     }
+#endif  // CONFIG_VMU
     // Handle PuruPuru (rumble pack) at slot 1 — address 0x02
     else if (DestPeripheral == ADDRESS_SUBPERIPHERAL1) {
         switch (Header->Command) {
@@ -866,16 +882,18 @@ void __not_in_flash_func(dreamcast_update_output)(void)
         dc_state[port].joy2_x = event->analog[ANALOG_RX];
         dc_state[port].joy2_y = event->analog[ANALOG_RY];
 
-        // L trigger: L2 (analog + digital) - consistent with GC/N64 mapping
-        // N64 L -> L2, GC L -> L2, USB L2 -> L2
+        // L trigger: pass the analog level through. Only force full from the
+        // digital L2 bit when there's no analog data (a digital-only pad whose
+        // analog axis stays 0). Otherwise the bit — which the router sets at
+        // the "any press" threshold of 1 — would snap an analog trigger to
+        // full the instant it's touched.
         uint8_t lt = event->analog[ANALOG_L2];
-        if (event->buttons & JP_BUTTON_L2) lt = 255;
+        if ((event->buttons & JP_BUTTON_L2) && lt == 0) lt = 255;
         dc_state[port].lt = lt;
 
-        // R trigger: R2 (analog + digital) - consistent with GC/N64 mapping
-        // N64 R -> R2, GC R -> R2, USB R2 -> R2
+        // R trigger: same rule.
         uint8_t rt = event->analog[ANALOG_R2];
-        if (event->buttons & JP_BUTTON_R2) rt = 255;
+        if ((event->buttons & JP_BUTTON_R2) && rt == 0) rt = 255;
         dc_state[port].rt = rt;
     }
 }
@@ -994,21 +1012,26 @@ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
                         tx_sent_count++;
                         switch (NextPacketSend) {
                         case SEND_CONTROLLER_INFO:
-                            SendPacket((uint32_t *)&InfoPacket, sizeof(InfoPacket) / sizeof(uint32_t));
+                            SendPacket((uint32_t *)pInfoPacket, sizeof(InfoPacket) / sizeof(uint32_t));
                             break;
                         case SEND_CONTROLLER_ALL_INFO:
-                            SendPacket((uint32_t *)&AllInfoPacket, sizeof(AllInfoPacket) / sizeof(uint32_t));
+                            SendPacket((uint32_t *)pAllInfoPacket, sizeof(AllInfoPacket) / sizeof(uint32_t));
                             break;
                         case SEND_CONTROLLER_STATUS:
                             SendControllerStatus();
                             break;
                         case SEND_ACK:
-                            SendPacket((uint32_t *)&ACKPacket, sizeof(ACKPacket) / sizeof(uint32_t));
+                            SendPacket((uint32_t *)pACKPacket, sizeof(ACKPacket) / sizeof(uint32_t));
                             break;
-                        case SEND_VMU_WRITE_COMPLETE_ACK:
-                            // WR_COMPLETE ACK — same as SEND_ACK but separate for tracking
-                            SendPacket((uint32_t *)&ACKPacket, sizeof(ACKPacket) / sizeof(uint32_t));
+#ifdef CONFIG_VMU
+                        case SEND_VMU_WRITE_COMPLETE_ACK: {
+                            // WR_COMPLETE ACK — must use VMU ACK (origin=0x01), not controller ACK
+                            uint32_t sz;
+                            const void *pkt = vmu_get_ack_packet(&sz);
+                            SendPacketVMU((uint32_t *)pkt, sz);
                             break;
+                        }
+#endif
                         case SEND_PURUPURU_INFO:
                             SendPacket((uint32_t *)&PuruPuruDeviceInfoPacket, sizeof(PuruPuruDeviceInfoPacket) / sizeof(uint32_t));
                             break;
@@ -1024,6 +1047,7 @@ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
                         case SEND_PURUPURU_BLOCK_READ:
                             SendPacket((uint32_t *)&PuruPuruBlockReadPacket, sizeof(PuruPuruBlockReadPacket) / sizeof(uint32_t));
                             break;
+#ifdef CONFIG_VMU
                         case SEND_VMU_INFO: {
                             uint32_t sz;
                             const void *pkt = vmu_get_device_info_packet(&sz);
@@ -1057,19 +1081,20 @@ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
                         // Send controller info first, then VMU info back-to-back
                         // SendPacket() waits for DMA internally so these sequence correctly
                         case SEND_CONTROLLER_AND_VMU_INFO: {
-                            SendPacket((uint32_t *)&InfoPacket, sizeof(InfoPacket) / sizeof(uint32_t));
+                            SendPacket((uint32_t *)pInfoPacket, sizeof(InfoPacket) / sizeof(uint32_t));
                             uint32_t sz;
                             const void *pkt = vmu_get_device_info_packet(&sz);
                             SendPacket((uint32_t *)pkt, sz);
                             break;
                         }
                         case SEND_CONTROLLER_AND_VMU_ALL_INFO: {
-                            SendPacket((uint32_t *)&AllInfoPacket, sizeof(AllInfoPacket) / sizeof(uint32_t));
+                            SendPacket((uint32_t *)pAllInfoPacket, sizeof(AllInfoPacket) / sizeof(uint32_t));
                             uint32_t sz;
                             const void *pkt = vmu_get_all_device_info_packet(&sz);
                             SendPacket((uint32_t *)pkt, sz);
                             break;
                         }
+#endif
                         default:
                             break;
                         }
@@ -1140,7 +1165,10 @@ static void SetupMapleRX(void)
 
     // Clock divider of 3.0 (from MaplePad)
     maple_rx_triple_program_init(RXPIO, offsets, MAPLE_PIN1, MAPLE_PIN5, 3.0f);
+}
 
+static void EnableMapleRX(void)
+{
     // Wait for core1 to be ready (use flag instead of FIFO - FIFO is used by flash lockout)
     while (!core1_ready) {
         __wfe();
@@ -1193,19 +1221,59 @@ void dreamcast_init(void)
     BuildPuruPuruConditionPacket();
     BuildPuruPuruBlockReadPacket();
 
+#ifdef CONFIG_VMU
     // Initialize VMU RAM and packets, but defer advertisement until dreamcast_task()
     // starts — this lets the controller enumerate cleanly before the DC starts
     // querying the VMU sub-peripheral (which triggers filesystem reads).
     vmu_init(ADDRESS_SUBPERIPHERAL0);   // initializes vmu_ram (pre-formats it)
     vmu_build_packets(ADDRESS_SUBPERIPHERAL0);
-    // Revert to controller-only advertisement — VMU added after 2s delay
+
+    // Build controller-only packets (used at boot, until VMU is ready)
     current_controller_address = ADDRESS_CONTROLLER_ONLY;
     BuildInfoPacket();
     BuildAllInfoPacket();
     BuildControllerPacket();
     BuildACKPacket();
 
+    // Pre-build VMU versions of packets now — dreamcast_enable_vmu() will
+    // atomically switch pointers to these, avoiding any race with Core 1
+    current_controller_address = ADDRESS_CONTROLLER_AND_VMU;
+    // Copy and patch InfoPacket → InfoPacket_vmu
+    InfoPacket_vmu = InfoPacket;
+    InfoPacket_vmu.Header.Origin = ADDRESS_CONTROLLER_AND_VMU;
+    InfoPacket_vmu.CRC = CalcCRC((uint32_t *)&InfoPacket_vmu.Header, sizeof(InfoPacket_vmu) / sizeof(uint32_t) - 2);
+    // Copy and patch AllInfoPacket → AllInfoPacket_vmu
+    AllInfoPacket_vmu = AllInfoPacket;
+    AllInfoPacket_vmu.Header.Origin = ADDRESS_CONTROLLER_AND_VMU;
+    AllInfoPacket_vmu.CRC = CalcCRC((uint32_t *)&AllInfoPacket_vmu.Header, sizeof(AllInfoPacket_vmu) / sizeof(uint32_t) - 2);
+    // Copy and patch ControllerPacket → ControllerPacket_vmu
+    ControllerPacket_vmu = ControllerPacket;
+    ControllerPacket_vmu.Header.Origin = ADDRESS_CONTROLLER_AND_VMU;
+    ControllerPacket_vmu.CRC = CalcCRC((uint32_t *)&ControllerPacket_vmu.Header, sizeof(ControllerPacket_vmu) / sizeof(uint32_t) - 2);
+    // Copy and patch ACKPacket → ACKPacket_vmu
+    ACKPacket_vmu = ACKPacket;
+    ACKPacket_vmu.Header.Origin = ADDRESS_CONTROLLER_AND_VMU;
+    ACKPacket_vmu.CRC = CalcCRC((uint32_t *)&ACKPacket_vmu.Header, sizeof(ACKPacket_vmu) / sizeof(uint32_t) - 2);
+
+    // Restore controller-only address for boot
+    current_controller_address = ADDRESS_CONTROLLER_ONLY;
+#else
+    // Non-VMU builds: build packets directly with controller + PuruPuru advertisement.
+    BuildInfoPacket();
+    BuildAllInfoPacket();
+    BuildControllerPacket();
+    BuildACKPacket();
+#endif
+
     printf("[DC] Maple Bus initialized on GPIO %d/%d\n", MAPLE_PIN1, MAPLE_PIN5);
+
+    // Configure Maple TX and RX PIO programs now — Core 1 not needed for this.
+    // State machines are enabled later in dreamcast_task() once Core 1 is running.
+    printf("[DC] Setting up Maple TX (PIO0)...\n");
+    SetupMapleTX();
+    printf("[DC] Configuring Maple RX (PIO1)...\n");
+    SetupMapleRX();
+    printf("[DC] Maple PIO configured — waiting for Core 1 to enable RX\n");
 }
 
 // ============================================================================
@@ -1233,24 +1301,28 @@ void dreamcast_task(void)
     static uint32_t vmu_enable_time = 0;
 
     if (!setup_done) {
-        // First call - setup TX and RX
-        printf("[DC] Setting up Maple TX (PIO0)...\n");
-        SetupMapleTX();
-        printf("[DC] Setting up Maple RX (PIO1)...\n");
-        SetupMapleRX();
+        // First call — Core 1 is now running, enable RX state machines
+        printf("[DC] Enabling Maple RX state machines (Core 1 ready)...\n");
+        EnableMapleRX();
         setup_done = true;
         printf("[DC] Maple TX/RX started\n");
         last_debug_time = time_us_32();
-        vmu_enable_time = time_us_32() + 100000;  // Enable VMU 100ms after start
+        vmu_enable_time = time_us_32() + 500000;  // Enable VMU 500ms after start — allows SD init to complete
     }
 
-    // Deferred VMU+rumble advertisement — 250ms after start
+    // Deferred VMU+rumble advertisement — after start
     // Controller enumerates cleanly first, then VMU+PuruPuru are added
+    // SD card load also deferred here to avoid blocking Maple Bus enumeration at boot
+#ifdef CONFIG_VMU
     if (!vmu_enabled && time_us_32() > vmu_enable_time) {
-        dreamcast_enable_vmu();
+        vmu_sd_load();          // Load saved VMU from SD (deferred from boot)
+        dreamcast_enable_vmu(); // Advertise VMU to DC
         vmu_enabled = true;
         printf("[DC] VMU+rumble advertisement enabled (addr 0x23)\n");
     }
+#else
+    (void)vmu_enabled; (void)vmu_enable_time;
+#endif
 
     // Periodic debug output (every 5 seconds)
     uint32_t now = time_us_32();
@@ -1294,16 +1366,16 @@ void dreamcast_task(void)
         if (NextPacketSend != SEND_NOTHING && !dma_channel_is_busy(tx_dma_channel)) {
             switch (NextPacketSend) {
             case SEND_CONTROLLER_INFO:
-                SendPacket((uint32_t *)&InfoPacket, sizeof(InfoPacket) / sizeof(uint32_t));
+                SendPacket((uint32_t *)pInfoPacket, sizeof(InfoPacket) / sizeof(uint32_t));
                 break;
             case SEND_CONTROLLER_ALL_INFO:
-                SendPacket((uint32_t *)&AllInfoPacket, sizeof(AllInfoPacket) / sizeof(uint32_t));
+                SendPacket((uint32_t *)pAllInfoPacket, sizeof(AllInfoPacket) / sizeof(uint32_t));
                 break;
             case SEND_CONTROLLER_STATUS:
                 SendControllerStatus();
                 break;
             case SEND_ACK:
-                SendPacket((uint32_t *)&ACKPacket, sizeof(ACKPacket) / sizeof(uint32_t));
+                SendPacket((uint32_t *)pACKPacket, sizeof(ACKPacket) / sizeof(uint32_t));
                 break;
             case SEND_PURUPURU_INFO:
                 SendPacket((uint32_t *)&PuruPuruDeviceInfoPacket, sizeof(PuruPuruDeviceInfoPacket) / sizeof(uint32_t));
@@ -1320,6 +1392,7 @@ void dreamcast_task(void)
             case SEND_PURUPURU_BLOCK_READ:
                 SendPacket((uint32_t *)&PuruPuruBlockReadPacket, sizeof(PuruPuruBlockReadPacket) / sizeof(uint32_t));
                 break;
+#ifdef CONFIG_VMU
             case SEND_VMU_INFO: {
                 uint32_t sz;
                 const void *pkt = vmu_get_device_info_packet(&sz);
@@ -1350,20 +1423,27 @@ void dreamcast_task(void)
                 SendPacketVMU((uint32_t *)pkt, sz);
                 break;
             }
+            case SEND_VMU_WRITE_COMPLETE_ACK: {
+                uint32_t sz;
+                const void *pkt = vmu_get_ack_packet(&sz);
+                SendPacketVMU((uint32_t *)pkt, sz);
+                break;
+            }
             case SEND_CONTROLLER_AND_VMU_INFO: {
-                SendPacket((uint32_t *)&InfoPacket, sizeof(InfoPacket) / sizeof(uint32_t));
+                SendPacket((uint32_t *)pInfoPacket, sizeof(InfoPacket) / sizeof(uint32_t));
                 uint32_t sz;
                 const void *pkt = vmu_get_device_info_packet(&sz);
                 SendPacketVMU((uint32_t *)pkt, sz);
                 break;
             }
             case SEND_CONTROLLER_AND_VMU_ALL_INFO: {
-                SendPacket((uint32_t *)&AllInfoPacket, sizeof(AllInfoPacket) / sizeof(uint32_t));
+                SendPacket((uint32_t *)pAllInfoPacket, sizeof(AllInfoPacket) / sizeof(uint32_t));
                 uint32_t sz;
                 const void *pkt = vmu_get_all_device_info_packet(&sz);
                 SendPacket((uint32_t *)pkt, sz);
                 break;
             }
+#endif
             default:
                 break;
             }
@@ -1375,16 +1455,16 @@ void dreamcast_task(void)
     if (NextPacketSend != SEND_NOTHING && !dma_channel_is_busy(tx_dma_channel)) {
         switch (NextPacketSend) {
         case SEND_CONTROLLER_INFO:
-            SendPacket((uint32_t *)&InfoPacket, sizeof(InfoPacket) / sizeof(uint32_t));
+            SendPacket((uint32_t *)pInfoPacket, sizeof(InfoPacket) / sizeof(uint32_t));
             break;
         case SEND_CONTROLLER_ALL_INFO:
-            SendPacket((uint32_t *)&AllInfoPacket, sizeof(AllInfoPacket) / sizeof(uint32_t));
+            SendPacket((uint32_t *)pAllInfoPacket, sizeof(AllInfoPacket) / sizeof(uint32_t));
             break;
         case SEND_CONTROLLER_STATUS:
             SendControllerStatus();
             break;
         case SEND_ACK:
-            SendPacket((uint32_t *)&ACKPacket, sizeof(ACKPacket) / sizeof(uint32_t));
+            SendPacket((uint32_t *)pACKPacket, sizeof(ACKPacket) / sizeof(uint32_t));
             break;
         case SEND_PURUPURU_INFO:
             SendPacket((uint32_t *)&PuruPuruDeviceInfoPacket, sizeof(PuruPuruDeviceInfoPacket) / sizeof(uint32_t));
@@ -1401,6 +1481,7 @@ void dreamcast_task(void)
         case SEND_PURUPURU_BLOCK_READ:
             SendPacket((uint32_t *)&PuruPuruBlockReadPacket, sizeof(PuruPuruBlockReadPacket) / sizeof(uint32_t));
             break;
+#ifdef CONFIG_VMU
         case SEND_VMU_INFO: {
             uint32_t sz;
             const void *pkt = vmu_get_device_info_packet(&sz);
@@ -1431,20 +1512,27 @@ void dreamcast_task(void)
             SendPacket((uint32_t *)pkt, sz);
             break;
         }
+        case SEND_VMU_WRITE_COMPLETE_ACK: {
+            uint32_t sz;
+            const void *pkt = vmu_get_ack_packet(&sz);
+            SendPacket((uint32_t *)pkt, sz);
+            break;
+        }
         case SEND_CONTROLLER_AND_VMU_INFO: {
-            SendPacket((uint32_t *)&InfoPacket, sizeof(InfoPacket) / sizeof(uint32_t));
+            SendPacket((uint32_t *)pInfoPacket, sizeof(InfoPacket) / sizeof(uint32_t));
             uint32_t sz;
             const void *pkt = vmu_get_device_info_packet(&sz);
             SendPacket((uint32_t *)pkt, sz);
             break;
         }
         case SEND_CONTROLLER_AND_VMU_ALL_INFO: {
-            SendPacket((uint32_t *)&AllInfoPacket, sizeof(AllInfoPacket) / sizeof(uint32_t));
+            SendPacket((uint32_t *)pAllInfoPacket, sizeof(AllInfoPacket) / sizeof(uint32_t));
             uint32_t sz;
             const void *pkt = vmu_get_all_device_info_packet(&sz);
             SendPacket((uint32_t *)pkt, sz);
             break;
         }
+#endif
         default:
             break;
         }
@@ -1455,8 +1543,10 @@ void dreamcast_task(void)
     // These are lower priority than responding to DC commands
     dreamcast_update_output();
 
+#ifdef CONFIG_VMU
     // VMU write-back task — flush SD card after 1 second idle
     vmu_task();
+#endif
 
     // Rumble timeout check - auto-stop if no new commands received
     uint32_t now_ms = time_us_32() / 1000;

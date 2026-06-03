@@ -342,6 +342,14 @@ static void cmd_mode_list(const char* json)
         // Skip DInput (HID) mode - replaced by SInput
         if (i == USB_OUTPUT_MODE_HID) continue;
 
+#ifndef CONFIG_JOYBUS_BRIDGE
+        // GBA Link Cable (USB vendor bridge to a forked Dolphin) is an
+        // experimental build-time opt-in — hide from the mode list on
+        // default builds so users don't pick a mode that has no working
+        // host on their machine. See docs/GBA_LINK_CABLE.md.
+        if (i == USB_OUTPUT_MODE_GBA_LINK) continue;
+#endif
+
 #ifdef CONFIG_NGC
         // GameCube config mode: only expose CDC mode
         if (i != USB_OUTPUT_MODE_CDC) continue;
@@ -509,15 +517,31 @@ static void cmd_profile_list(const char* json)
     flash_t* settings = flash_get_settings();
     uint8_t custom_count = settings ? settings->custom_profile_count : 0;
 
-    // Determine active profile in unified indexing
+    // Determine active profile in unified indexing. Use the public getters so
+    // an active PROFILE.SELECT ephemeral override is visible in PROFILE.LIST
+    // (matches the runtime's view of "what's actually in effect right now").
+    //
+    // Apps with built-in profiles (e.g. usb2gc) have two independent active
+    // states: profile_get_active_index(target) for built-ins and
+    // flash_get_active_profile_index() for customs. The router/output path
+    // gives custom profiles precedence over built-ins (see
+    // flash_get_active_custom_profile() — non-NULL whenever a custom is
+    // selected). PROFILE.LIST must reflect that same precedence or the
+    // web config shows the wrong "active" after refreshing a custom-profile
+    // selection.
     int active;
     if (builtin_count > 0) {
-        // Use built-in profile active index, or offset for custom
-        active = profile_get_active_index(get_profile_target());
-        // TODO: Handle custom profile selection for apps with built-in profiles
+        uint8_t flash_active = flash_get_active_profile_index();
+        if (flash_active > 0) {
+            // Custom profile selected — it takes runtime precedence.
+            active = custom_to_unified_index((int)(flash_active - 1));
+        } else {
+            active = profile_get_active_index(get_profile_target());
+        }
     } else {
-        // No built-in profiles - use flash active index (already 0-based with virtual default)
-        active = settings ? settings->active_profile_index : 0;
+        // No built-in profiles — flash_get_active_profile_index() returns the
+        // PROFILE.SELECT sidecar if set, else the persisted value.
+        active = flash_get_active_profile_index();
     }
 
     int pos = snprintf(response_buf, sizeof(response_buf),
@@ -560,14 +584,20 @@ static void cmd_profile_get(const char* json)
 {
     int index;
     if (!json_get_int(json, "index", &index)) {
-        // No index - return active profile info
+        // No index - return active profile info. Same precedence rule as
+        // PROFILE.LIST: custom-selected (flash_active > 0) wins over the
+        // app's built-in active.
         uint8_t builtin_count = get_builtin_count();
         int active;
         if (builtin_count > 0) {
-            active = profile_get_active_index(get_profile_target());
+            uint8_t flash_active = flash_get_active_profile_index();
+            if (flash_active > 0) {
+                active = custom_to_unified_index((int)(flash_active - 1));
+            } else {
+                active = profile_get_active_index(get_profile_target());
+            }
         } else {
-            flash_t* settings = flash_get_settings();
-            active = settings ? settings->active_profile_index : 0;
+            active = flash_get_active_profile_index();
         }
         index = active;
     }
@@ -641,7 +671,13 @@ static void cmd_profile_set(const char* json)
     uint8_t builtin_count = get_builtin_count();
 
     if (builtin_count > 0 && index < builtin_count) {
-        // Select built-in profile
+        // Select built-in profile. ALSO clear any persisted custom selection
+        // — flash_get_active_custom_profile() takes runtime precedence over
+        // the built-in active, so a stale flash_active > 0 would keep
+        // applying the previously-selected custom even though the UI now
+        // says built-in is active. flash_set_active_profile_index(0) =
+        // "no custom selected", which lets the built-in take effect.
+        flash_set_active_profile_index(0);
         profile_set_active(get_profile_target(), index);
         const char* name = profile_get_name(get_profile_target(), index);
         snprintf(response_buf, sizeof(response_buf),
@@ -1000,6 +1036,206 @@ static void cmd_profile_clone(const char* json)
     send_json(response_buf);
 }
 
+// PROFILE.SELECT - Set active profile in RAM only (no flash write).
+// Same effect as PROFILE.SET for the current session, but the persistent boot
+// default is untouched — designed for live-control flows (joypad-live) that
+// would otherwise burn flash with thousands of profile switches per stream.
+// On reboot, whatever was last persisted via PROFILE.SET (or the web config)
+// is what comes back. Clears any PROFILE.APPLY override.
+static void cmd_profile_select(const char* json)
+{
+    int index;
+    if (!json_get_int(json, "index", &index)) {
+        send_error("missing index");
+        return;
+    }
+
+    uint8_t total = get_total_count();
+    if (index < 0 || index >= total) {
+        send_error("invalid index");
+        return;
+    }
+
+    uint8_t builtin_count = get_builtin_count();
+
+    if (builtin_count > 0 && index < builtin_count) {
+        // Ephemeral built-in selection (no flash write).
+        profile_select_active(get_profile_target(), index);
+        const char* name = profile_get_name(get_profile_target(), index);
+        snprintf(response_buf, sizeof(response_buf),
+                 "{\"ok\":true,\"index\":%d,\"name\":\"%s\",\"persisted\":false}",
+                 index, name ? name : "Default");
+    } else {
+        // Ephemeral custom (or virtual-Default) selection.
+        int custom_idx = unified_to_custom_index(index);
+        int flash_idx = (custom_idx < 0) ? 0 : custom_idx + 1;
+        flash_select_active_profile_index((uint8_t)flash_idx);
+
+        flash_t* settings = flash_get_settings();
+        const char* name = "Default";
+        if (custom_idx >= 0 && settings && custom_idx < settings->custom_profile_count) {
+            name = settings->profiles[custom_idx].name;
+        }
+        snprintf(response_buf, sizeof(response_buf),
+                 "{\"ok\":true,\"index\":%d,\"name\":\"%.11s\",\"persisted\":false}",
+                 index, name);
+    }
+    send_json(response_buf);
+}
+
+// PROFILE.APPLY - Apply an ephemeral runtime profile (RAM only, no flash write).
+// Designed for crowd-control / live-remap use cases: many unique button maps
+// over short windows, no flash wear, no 4-slot ceiling. Any explicit profile
+// selection (PROFILE.SET, on-device SELECT+D-pad cycling) drops the override.
+//
+// Body: { "button_map":[18 ints], "name":"...", optional left/right_stick_sens,
+//         flags, socd_mode, l2_threshold, r2_threshold }
+// Missing fields default to passthrough / 100% sens / no SOCD / no thresholds.
+static void cmd_profile_apply(const char* json)
+{
+    custom_profile_t cp;
+    memset(&cp, 0, sizeof(cp));
+    cp.left_stick_sens = 100;
+    cp.right_stick_sens = 100;
+    // button_map defaults to all-zero = BUTTON_MAP_PASSTHROUGH per memset above.
+
+    // Optional name (12 chars, null-terminated). Falls back to "Ephemeral".
+    int name_len;
+    const char* name = json_get_string(json, "name", &name_len);
+    if (name && name_len > 0) {
+        int copy_len = name_len < CUSTOM_PROFILE_NAME_LEN - 1
+                       ? name_len : CUSTOM_PROFILE_NAME_LEN - 1;
+        memcpy(cp.name, name, copy_len);
+        cp.name[copy_len] = '\0';
+    } else {
+        snprintf(cp.name, CUSTOM_PROFILE_NAME_LEN, "Ephemeral");
+    }
+
+    // button_map is optional — without it, this acts as a stick/SOCD-only override.
+    uint8_t button_map[CUSTOM_PROFILE_BUTTON_COUNT];
+    int map_count = json_get_int_array(json, "button_map", button_map,
+                                       CUSTOM_PROFILE_BUTTON_COUNT);
+    if (map_count == CUSTOM_PROFILE_BUTTON_COUNT) {
+        memcpy(cp.button_map, button_map, CUSTOM_PROFILE_BUTTON_COUNT);
+    }
+
+    int v;
+    if (json_get_int(json, "left_stick_sens", &v))
+        cp.left_stick_sens = (uint8_t)(v > 200 ? 200 : (v < 0 ? 0 : v));
+    if (json_get_int(json, "right_stick_sens", &v))
+        cp.right_stick_sens = (uint8_t)(v > 200 ? 200 : (v < 0 ? 0 : v));
+    if (json_get_int(json, "flags", &v))
+        cp.flags = (uint8_t)v;
+    if (json_get_int(json, "socd_mode", &v))
+        cp.socd_mode = (uint8_t)(v > 3 ? 0 : (v < 0 ? 0 : v));
+    if (json_get_int(json, "l2_threshold", &v))
+        cp.l2_threshold = (uint8_t)(v > 255 ? 255 : (v < 0 ? 0 : v));
+    if (json_get_int(json, "r2_threshold", &v))
+        cp.r2_threshold = (uint8_t)(v > 255 ? 255 : (v < 0 ? 0 : v));
+
+    flash_apply_ephemeral_profile(&cp);
+
+    snprintf(response_buf, sizeof(response_buf),
+             "{\"ok\":true,\"ephemeral\":true,\"name\":\"%.11s\"}", cp.name);
+    send_json(response_buf);
+}
+
+// PROFILE.CLEAR - Drop the ephemeral runtime override, resume the flash-stored
+// active profile. Idempotent (no-op if no override is set).
+static void cmd_profile_clear(const char* json)
+{
+    (void)json;
+    flash_clear_ephemeral_profile();
+    send_json("{\"ok\":true,\"ephemeral\":false}");
+}
+
+// OVERLAY.SET - Apply a RAM-only "live tweak" layer on top of whatever
+// profile is active (built-in, custom, or PROFILE.APPLY'd). Unlike
+// PROFILE.APPLY, the overlay does NOT replace the active button_map —
+// it only adds stick / SOCD / threshold transforms. Fields set to 0 are
+// skipped (strictly additive). Replaces any previously-set overlay.
+//
+// Body: { "flags":N, "left_stick_sens":N, "right_stick_sens":N,
+//         "socd_mode":N, "l2_threshold":N, "r2_threshold":N } — all optional.
+static void cmd_overlay_set(const char* json)
+{
+    runtime_overlay_t ov;
+    memset(&ov, 0, sizeof(ov));
+    int v;
+    if (json_get_int(json, "flags", &v))
+        ov.flags = (uint8_t)v;
+    if (json_get_int(json, "left_stick_sens", &v))
+        ov.left_stick_sens = (uint8_t)(v > 200 ? 200 : (v < 0 ? 0 : v));
+    if (json_get_int(json, "right_stick_sens", &v))
+        ov.right_stick_sens = (uint8_t)(v > 200 ? 200 : (v < 0 ? 0 : v));
+    if (json_get_int(json, "socd_mode", &v))
+        ov.socd_mode = (uint8_t)(v > 3 ? 0 : (v < 0 ? 0 : v));
+    if (json_get_int(json, "l2_threshold", &v))
+        ov.l2_threshold = (uint8_t)(v > 255 ? 255 : (v < 0 ? 0 : v));
+    if (json_get_int(json, "r2_threshold", &v))
+        ov.r2_threshold = (uint8_t)(v > 255 ? 255 : (v < 0 ? 0 : v));
+
+    flash_set_overlay(&ov);
+
+    snprintf(response_buf, sizeof(response_buf),
+             "{\"ok\":true,\"overlay\":true,\"flags\":%d,"
+             "\"left_stick_sens\":%d,\"right_stick_sens\":%d,"
+             "\"socd_mode\":%d,\"l2_threshold\":%d,\"r2_threshold\":%d}",
+             ov.flags, ov.left_stick_sens, ov.right_stick_sens,
+             ov.socd_mode, ov.l2_threshold, ov.r2_threshold);
+    send_json(response_buf);
+}
+
+// OVERLAY.CLEAR - Drop the runtime overlay. Idempotent.
+static void cmd_overlay_clear(const char* json)
+{
+    (void)json;
+    flash_clear_overlay();
+    send_json("{\"ok\":true,\"overlay\":false}");
+}
+
+// INPUT.INJECT - Submit a synthetic gamepad event into the router from the
+// host. Lets joypad-live let chat actually press buttons (not just remap
+// the streamer's input): a chat command like "!press a" → POST /press/a →
+// INPUT.INJECT { buttons: 1 }. The synthetic event arrives at the router as
+// a separate slot in the 0xD8..0xDF range, so it composes with the
+// streamer's real controller via the merge router mode rather than
+// replacing it.
+//
+// Body: {
+//   "buttons": <uint32 JP_BUTTON_* mask>,        required
+//   "slot":    0..7,                             optional, default 0
+//   "analog":  [LX,LY,RX,RY,L2,R2,RZ],           optional, defaults to neutral
+// }
+//
+// Stateful: each INPUT.INJECT call replaces the synthetic slot's full
+// state (matches how real controllers report). For a tap, the host sends
+// {buttons:N} then {buttons:0} after a few ms.
+static void cmd_input_inject(const char* json)
+{
+    int buttons_val;
+    if (!json_get_int(json, "buttons", &buttons_val)) {
+        send_error("missing buttons");
+        return;
+    }
+    int slot = 0;
+    json_get_int(json, "slot", &slot);
+    if (slot < 0 || slot > 7) slot = 0;
+
+    (void)slot;  // reserved; today we OR a single global mask into events
+
+    // Cache the synthetic button state in the router. Each real input event
+    // (PSX poll, USB poll, BT notification) gets `buttons |= s_inject_buttons`
+    // applied at the top of router_submit_input — works regardless of the
+    // app's routing mode (SIMPLE, MERGE, BROADCAST). Pass buttons=0 to release.
+    router_set_inject_buttons((uint32_t)buttons_val);
+
+    snprintf(response_buf, sizeof(response_buf),
+             "{\"ok\":true,\"buttons\":%u}",
+             (unsigned)buttons_val);
+    send_json(response_buf);
+}
+
 // Legacy alias for CPROFILE.SELECT (deprecated, use PROFILE.SET)
 static void cmd_cprofile_select(const char* json)
 {
@@ -1133,14 +1369,7 @@ static void cmd_router_dpad_set(const char* json)
         return;
     }
     router_set_dpad_mode((uint8_t)mode);
-
-    // Persist to flash (no reboot needed)
-    flash_t flash_data;
-    if (!flash_load(&flash_data)) memset(&flash_data, 0, sizeof(flash_data));
-    flash_data.dpad_mode = (uint8_t)mode;
-    flash_data.router_saved = 1;
-    flash_save(&flash_data);
-
+    flash_set_dpad_mode((uint8_t)mode);   // persist (no reboot needed)
     send_ok();
 }
 
@@ -2181,6 +2410,254 @@ static void cmd_pad_config_pins(const char* json)
 #endif // CONFIG_PAD_INPUT
 
 // ============================================================================
+// JOYBUS BRIDGE COMMANDS (gc2usb only)
+// ============================================================================
+//
+// Surface joybus_bridge.c via CDC so a host-side daemon can drive raw
+// joybus traffic — currently used for GBA multiboot upload (Kawasedo
+// cipher in JS), eventually for Dolphin live link traffic and GameCube
+// controller polling. Bus-generic primitive; bridge layer doesn't know
+// or care what protocol the daemon is implementing on top.
+//
+// See .dev/docs/dolphin-gba-bridge.md for the architecture + phasing.
+
+// Gate on an explicit compile definition rather than __has_include — every
+// target gets src/ on its include path via joypad_target_common, so the
+// header is always reachable even when joybus_bridge.c isn't linked.
+#ifdef CONFIG_JOYBUS_BRIDGE
+#define HAVE_JOYBUS_BRIDGE 1
+#include "native/host/gc/joybus_bridge.h"
+#endif
+
+#ifdef HAVE_JOYBUS_BRIDGE
+
+// Tiny hex parser/emitter — no allocation, no validation overhead. The
+// daemon is trusted; if it sends bad hex we just truncate. Bytes are
+// small (joybus xfers cap at a handful of bytes typically).
+static int hex_nibble(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static int parse_hex(const char* json, const char* key,
+                     uint8_t* out, int max_bytes)
+{
+    int len = 0;
+    const char* hex = json_get_string(json, key, &len);
+    if (!hex || len == 0 || (len & 1)) return 0;
+    int bytes = len / 2;
+    if (bytes > max_bytes) bytes = max_bytes;
+    for (int i = 0; i < bytes; i++) {
+        int hi = hex_nibble(hex[2*i]);
+        int lo = hex_nibble(hex[2*i + 1]);
+        if (hi < 0 || lo < 0) return i;
+        out[i] = (uint8_t)((hi << 4) | lo);
+    }
+    return bytes;
+}
+
+static void emit_hex(char* dst, const uint8_t* src, int n)
+{
+    static const char H[] = "0123456789abcdef";
+    for (int i = 0; i < n; i++) {
+        dst[2*i]   = H[(src[i] >> 4) & 0xF];
+        dst[2*i+1] = H[src[i] & 0xF];
+    }
+    dst[2*n] = '\0';
+}
+
+static void cmd_joybus_bridge_start(const char* json)
+{
+    (void)json;
+    if (!joybus_bridge_start()) {
+        send_error("Could not acquire joybus port (gc_host not initialized?)");
+        return;
+    }
+    send_ok();
+}
+
+static void cmd_joybus_bridge_stop(const char* json)
+{
+    (void)json;
+    joybus_bridge_stop();
+    send_ok();
+}
+
+static void cmd_joybus_bridge_status(const char* json)
+{
+    (void)json;
+    joybus_bridge_state_t s = joybus_bridge_get_state();
+    snprintf(response_buf, sizeof(response_buf),
+             "{\"ok\":true,\"state\":\"%s\"}",
+             s == JOYBUS_BRIDGE_ACTIVE ? "ACTIVE" : "IDLE");
+    send_json(response_buf);
+}
+
+// JOYBUS.XFER — primitive joybus exchange.
+//   Request:  {"cmd":"JOYBUS.XFER","tx":"<hex>","rx_len":N,"timeout_us":M}
+//   Response: {"ok":true,"rx":"<hex>","got":N}   on success
+//             {"ok":false,"error":"...","code":-N}   on bus error
+//
+// timeout_us defaults to 1000 (1 ms) if omitted; rx_len defaults to 0.
+static void cmd_joybus_xfer(const char* json)
+{
+    uint8_t tx[32];
+    int tx_len = parse_hex(json, "tx", tx, sizeof(tx));
+
+    int rx_len = 0;
+    json_get_int(json, "rx_len", &rx_len);
+    if (rx_len < 0) rx_len = 0;
+    if (rx_len > 32) rx_len = 32;
+
+    int timeout_us = 1000;
+    json_get_int(json, "timeout_us", &timeout_us);
+    if (timeout_us < 1) timeout_us = 1;
+
+    uint8_t rx[32];
+    int got = joybus_bridge_xfer(tx, (uint16_t)tx_len,
+                                 rx, (uint16_t)rx_len,
+                                 (uint32_t)timeout_us);
+    if (got < 0) {
+        snprintf(response_buf, sizeof(response_buf),
+                 "{\"ok\":false,\"error\":\"xfer failed\",\"code\":%d}", got);
+        send_json(response_buf);
+        return;
+    }
+    char hex[2 * 32 + 1];
+    emit_hex(hex, rx, got);
+    snprintf(response_buf, sizeof(response_buf),
+             "{\"ok\":true,\"rx\":\"%s\",\"got\":%d}", hex, got);
+    send_json(response_buf);
+}
+
+// JOYBUS.BATCH — execute N joybus xfers in a single CDC roundtrip.
+// Per-xfer encoding (binary, hex'd into "ops" string):
+//   tx_len(1) | tx[tx_len] | rx_len(1)
+// Per-xfer response (binary, hex'd into "out" string):
+//   err_abs(1) | got(1) | rx[got]    (err_abs=0 on success)
+//
+// Single batch-wide timeout in JSON ("timeout_us", default 5000).
+//
+// This is the throughput primitive. Single JOYBUS.XFER pays a USB FS
+// roundtrip (~2 ms) per call — devastating for the ~13.5K writes a
+// 54 KB multiboot needs (~30 s of pure USB overhead). With BATCH, a
+// daemon can pack ~70 ops per CDC frame and amortize the USB cost
+// down to well under 1 s for the same upload. Joybus bus time itself
+// is unchanged (~3.4 s for 54 KB), so total ≈ 4 s instead of 30+.
+static void cmd_joybus_batch(const char* json)
+{
+    int ops_hex_len = 0;
+    const char* ops_hex = json_get_string(json, "ops", &ops_hex_len);
+    if (!ops_hex || (ops_hex_len & 1)) { send_error("missing/odd ops"); return; }
+
+    int timeout_us = 5000;
+    json_get_int(json, "timeout_us", &timeout_us);
+    if (timeout_us < 1) timeout_us = 1;
+
+    // Walk encoded ops, execute, accumulate raw response bytes.
+    static uint8_t out_buf[480];   // ~960 hex chars; well under CDC max.
+    int out_len = 0;
+    int i = 0;
+    while (i + 2 <= ops_hex_len) {
+        int tx_len = (hex_nibble(ops_hex[i]) << 4) | hex_nibble(ops_hex[i+1]);
+        i += 2;
+        if (tx_len < 0 || tx_len > 32 || i + tx_len*2 + 2 > ops_hex_len) break;
+
+        uint8_t tx[32];
+        for (int j = 0; j < tx_len; j++) {
+            tx[j] = (hex_nibble(ops_hex[i + 2*j]) << 4) | hex_nibble(ops_hex[i + 2*j + 1]);
+        }
+        i += tx_len * 2;
+
+        int rx_len = (hex_nibble(ops_hex[i]) << 4) | hex_nibble(ops_hex[i+1]);
+        i += 2;
+        if (rx_len < 0 || rx_len > 32) break;
+        if (out_len + 2 + rx_len > (int)sizeof(out_buf)) break;  // would overflow rsp
+
+        uint8_t rx[32];
+        int got = joybus_bridge_xfer(tx, (uint16_t)tx_len, rx, (uint16_t)rx_len,
+                                     (uint32_t)timeout_us);
+        uint8_t err = (got < 0) ? (uint8_t)(-got) : 0;
+        if (got < 0) got = 0;
+        out_buf[out_len++] = err;
+        out_buf[out_len++] = (uint8_t)got;
+        memcpy(&out_buf[out_len], rx, got);
+        out_len += got;
+        // Settle between ops — matches the sleep_us(GBA_DELAY_US=70)
+        // gba_multiboot.c puts before each WRITE. The cable's level-
+        // shifter MCU and the GBA's BIOS multiboot handler both need a
+        // small gap to process the previous exchange before accepting
+        // the next; without it, batched WRITEs land but the BIOS gets
+        // confused and silently rejects the upload at CRC time.
+        sleep_us(70);
+    }
+
+    static char hex_out[2 * sizeof(out_buf) + 1];
+    emit_hex(hex_out, out_buf, out_len);
+    snprintf(response_buf, sizeof(response_buf),
+             "{\"ok\":true,\"out\":\"%s\"}", hex_out);
+    send_json(response_buf);
+}
+
+// ============================================================================
+// GBA multiboot — staged upload (firmware-native timing)
+// ============================================================================
+// JS-driven upload over JOYBUS.XFER/BATCH can't keep up with the BIOS's
+// inter-WRITE timing tolerance (CDC roundtrips between batches stall the
+// handshake long enough for BIOS to silently reject at CRC). So multiboot
+// gets a specialized path: stream the ROM in via GBA.MB.CHUNK, then fire
+// GBA.MB.UPLOAD which runs the upload natively in firmware.
+//
+// This trades flexibility (host can't tweak per-WRITE timing) for
+// reliability. JS still owns the bus via JOYBUS.BRIDGE.START — the
+// staging path piggybacks on that ownership.
+
+static void cmd_gba_mb_reset(const char* json)
+{
+    (void)json;
+    joybus_bridge_mb_reset();
+    snprintf(response_buf, sizeof(response_buf),
+             "{\"ok\":true,\"size\":0}");
+    send_json(response_buf);
+}
+
+static void cmd_gba_mb_chunk(const char* json)
+{
+    uint8_t buf[480];   // ~960 hex chars; leaves headroom for JSON keys
+    int n = parse_hex(json, "data", buf, sizeof(buf));
+    if (n <= 0) { send_error("missing/empty data"); return; }
+    if (!joybus_bridge_mb_append(buf, n)) {
+        send_error("buffer overflow (rom > 64 KB)");
+        return;
+    }
+    snprintf(response_buf, sizeof(response_buf),
+             "{\"ok\":true,\"size\":%lu}",
+             (unsigned long)joybus_bridge_mb_size());
+    send_json(response_buf);
+}
+
+static void cmd_gba_mb_upload(const char* json)
+{
+    int channel = 0;
+    json_get_int(json, "channel", &channel);
+    int r = joybus_bridge_mb_upload(channel);
+    if (r == 0) {
+        snprintf(response_buf, sizeof(response_buf),
+                 "{\"ok\":true,\"size\":%lu}",
+                 (unsigned long)joybus_bridge_mb_size());
+    } else {
+        snprintf(response_buf, sizeof(response_buf),
+                 "{\"ok\":false,\"code\":%d,\"size\":%lu}",
+                 r, (unsigned long)joybus_bridge_mb_size());
+    }
+    send_json(response_buf);
+}
+#endif  // HAVE_JOYBUS_BRIDGE
+
+// ============================================================================
 // SD CARD COMMANDS (smoke-test surface — proves FatFs + HAL work)
 // ============================================================================
 
@@ -2270,6 +2747,12 @@ static const cmd_entry_t commands[] = {
     {"PROFILE.SAVE", cmd_profile_save},
     {"PROFILE.DELETE", cmd_profile_delete},
     {"PROFILE.CLONE", cmd_profile_clone},
+    {"PROFILE.APPLY", cmd_profile_apply},
+    {"PROFILE.CLEAR", cmd_profile_clear},
+    {"PROFILE.SELECT", cmd_profile_select},
+    {"OVERLAY.SET", cmd_overlay_set},
+    {"OVERLAY.CLEAR", cmd_overlay_clear},
+    {"INPUT.INJECT", cmd_input_inject},
     // Legacy CPROFILE.* aliases (deprecated - redirect to unified commands)
     {"CPROFILE.LIST", cmd_cprofile_list},
     {"CPROFILE.GET", cmd_cprofile_get},
@@ -2286,6 +2769,16 @@ static const cmd_entry_t commands[] = {
     {"CAPS.GET", cmd_caps_get},
     {"OUTPUT.NATIVE.GET", cmd_output_native_get},
     {"OUTPUT.NATIVE.SET", cmd_output_native_set},
+#ifdef HAVE_JOYBUS_BRIDGE
+    {"JOYBUS.BRIDGE.START", cmd_joybus_bridge_start},
+    {"JOYBUS.BRIDGE.STOP", cmd_joybus_bridge_stop},
+    {"JOYBUS.BRIDGE.STATUS", cmd_joybus_bridge_status},
+    {"JOYBUS.XFER", cmd_joybus_xfer},
+    {"JOYBUS.BATCH", cmd_joybus_batch},
+    {"GBA.MB.RESET", cmd_gba_mb_reset},
+    {"GBA.MB.CHUNK", cmd_gba_mb_chunk},
+    {"GBA.MB.UPLOAD", cmd_gba_mb_upload},
+#endif
     // Player management
     {"PLAYERS.LIST", cmd_players_list},
     // Rumble testing
