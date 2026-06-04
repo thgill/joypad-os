@@ -210,7 +210,7 @@ void vmu_init(uint8_t port_addr) {
 // (USB flash > SD > QSPI > RAM) and loads any saved image. Deferred from
 // vmu_init() to avoid blocking Maple Bus enumeration.
 void vmu_sd_load(void) {
-    vmu_storage_init();
+    vmu_sd_init();
     printf("[VMU] Storage load complete\n");
 }
 
