@@ -10,6 +10,7 @@
 // the only consequence of a torn read is a slightly early or late flush.
 
 #include "vmu_sd.h"
+#include "ff.h"
 #include "vmu.h"
 #include "core/services/sd/sd.h"
 #include "platform/platform_sd.h"
@@ -53,8 +54,31 @@ bool vmu_sd_init(void)
     printf("[vmu-sd] SD mounted (%llu MB free)\n",
            (unsigned long long)(sd_free_bytes() / (1024ULL * 1024ULL)));
 
-    // Try to load existing VMU image.
-    int got = sd_read_file(VMU_SD_FILENAME, vmu_ram, VMU_IMAGE_SIZE);
+    // Try to load existing VMU image using chunked reads.
+    // Some SD cards fail on a single 128KB f_read(); 512-byte chunks
+    // match the SD sector size and are universally reliable.
+    int got = 0;
+    {
+        FIL f;
+        if (f_open(&f, VMU_SD_FILENAME, FA_READ) == FR_OK) {
+            uint8_t* dst = (uint8_t*)vmu_ram;
+            size_t remaining = VMU_IMAGE_SIZE;
+            size_t offset = 0;
+            bool ok = true;
+            while (remaining > 0 && ok) {
+                UINT chunk = (UINT)(remaining > 512 ? 512 : remaining);
+                UINT rd = 0;
+                if (f_read(&f, dst + offset, chunk, &rd) != FR_OK || rd == 0) {
+                    ok = false;
+                } else {
+                    offset += rd;
+                    remaining -= rd;
+                }
+            }
+            f_close(&f);
+            if (ok) got = (int)VMU_IMAGE_SIZE;
+        }
+    }
     if (got == (int)VMU_IMAGE_SIZE) {
         printf("[vmu-sd] Loaded %s\n", VMU_SD_FILENAME);
     } else {
@@ -69,6 +93,40 @@ bool vmu_sd_init(void)
     }
 
     sd_available = true;
+    return true;
+#endif
+}
+
+// Mount SD card without loading VMU file — used when QSPI is primary backend.
+// QSPI image stays intact; first dirty writeback will sync QSPI -> SD.
+bool vmu_sd_mount(void)
+{
+#ifndef CONFIG_SD
+    return false;
+#else
+    static const platform_sd_config_t sd_cfg = {
+        .spi_inst    = SD_SPI_INST,
+        .sck_pin     = SD_SCK_PIN,
+        .mosi_pin    = SD_MOSI_PIN,
+        .miso_pin    = SD_MISO_PIN,
+        .cs_pin      = SD_CS_PIN,
+        .cd_pin      = PLATFORM_SD_NO_CD,
+        .init_freq_hz = 200000,
+        .run_freq_hz  = 12500000,
+    };
+
+    platform_sd_t dev = platform_sd_init(&sd_cfg);
+    if (!dev || !sd_init(dev)) {
+        printf("[vmu-sd] SD not available for backup\n");
+        return false;
+    }
+
+    printf("[vmu-sd] SD mounted for backup (%llu MB free)\n",
+           (unsigned long long)(sd_free_bytes() / (1024ULL * 1024ULL)));
+
+    // Mark dirty so first vmu_sd_task() call syncs QSPI image to SD
+    sd_available = true;
+    vmu_dirty_flag = true;
     return true;
 #endif
 }

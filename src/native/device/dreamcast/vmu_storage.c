@@ -7,6 +7,7 @@
 #include "vmu_storage.h"
 #include "vmu.h"
 #include "vmu_sd.h"
+#include "dreamcast_device.h"
 #include "pico/stdlib.h"
 #include <string.h>
 #include <stdio.h>
@@ -21,7 +22,8 @@
 extern uint8_t vmu_ram[];
 extern volatile bool vmu_dirty_flag;
 
-static vmu_backend_t active = VMU_BACKEND_NONE;
+static vmu_backend_t active = VMU_BACKEND_NONE;   // primary backend
+static bool sd_backup_active = false;              // SD backup available alongside QSPI
 
 // ===========================================================================
 // QSPI backend
@@ -60,6 +62,26 @@ static void qspi_flush(void) {
     const uint8_t* xip = qspi_xip();
     for (uint32_t off = 0; off < VMU_IMAGE_SIZE; off += FLASH_SECTOR_SIZE) {
         if (memcmp(vmu_ram + off, xip + off, FLASH_SECTOR_SIZE) == 0) continue;
+#ifdef CONFIG_NO_FLASH_LOCKOUT
+        // Pause Maple TX, wait for current packet to finish, erase+program,
+        // then resume. The DC tolerates one missed 16.7ms frame gracefully.
+        {
+            // vmu_dirty_flag is still set during flush — Core 0 LED blink handles this
+            // Pause Core 1 TX and wait for any in-flight packet to complete
+            dreamcast_set_maple_pause(true);
+            uint32_t before = dreamcast_rx_count();
+            uint32_t timeout = time_us_32() + 20000;  // 20ms max wait
+            while (dreamcast_rx_count() == before && time_us_32() < timeout) {
+                tight_loop_contents();
+            }
+            // Now erase+program with IRQ disabled
+            uint32_t ints = save_and_disable_interrupts();
+            flash_range_erase(VMU_QSPI_OFFSET + off, FLASH_SECTOR_SIZE);
+            flash_range_program(VMU_QSPI_OFFSET + off, vmu_ram + off, FLASH_SECTOR_SIZE);
+            restore_interrupts(ints);
+            dreamcast_set_maple_pause(false);
+        }
+#else
         qspi_sector_t s = { VMU_QSPI_OFFSET + off, vmu_ram + off };
         int r = flash_safe_execute(qspi_sector_worker, &s, UINT32_MAX);
         if (r != PICO_OK) {
@@ -69,6 +91,7 @@ static void qspi_flush(void) {
             flash_range_program(VMU_QSPI_OFFSET + off, vmu_ram + off, FLASH_SECTOR_SIZE);
             restore_interrupts(ints);
         }
+#endif
     }
 }
 
@@ -109,22 +132,37 @@ static void qspi_task(void) {
 // ===========================================================================
 
 void vmu_storage_init(void) {
-    // Priority: USB flash > SD card > QSPI > RAM-only.
+    // Priority: QSPI (primary, always reliable) > SD (backup) > RAM-only.
+    // SD is never the sole primary backend — it can block Core 0 during init
+    // long enough to disrupt Maple Bus timing and drop the DC controller.
+    // With QSPI as primary, VMU is always available immediately on boot.
+    // SD is initialized as an async backup when QSPI is active.
 #ifdef CONFIG_VMU_USB
-    // USB MSC backend (flash drive on a hub sharing the host port) — TODO:
-    // needs hub hardware to validate; falls through for now.
-#endif
-#ifdef CONFIG_SD
-    if (vmu_sd_init()) { active = VMU_BACKEND_SD; }
-    else
+    // USB MSC backend — TODO: needs hub hardware to validate.
 #endif
 #ifdef CONFIG_VMU_QSPI
-    if (qspi_init()) { active = VMU_BACKEND_QSPI; }
+    if (qspi_init()) {
+        active = VMU_BACKEND_QSPI;
+        // Mount SD as backup without loading from it — QSPI is the source
+        // of truth. vmu_sd_mount() marks dirty so the first vmu_sd_task()
+        // call will sync the QSPI image to SD.
+#ifdef CONFIG_SD
+        if (vmu_sd_mount()) {
+            sd_backup_active = true;
+            printf("[vmu-storage] SD backup active\n");
+        }
+#endif
+    } else
+#endif
+#ifdef CONFIG_SD
+    // Fallback: SD only (no QSPI) — legacy behaviour for non-QSPI builds
+    if (vmu_sd_init()) { active = VMU_BACKEND_SD; }
     else
 #endif
     { active = VMU_BACKEND_NONE; }
 
-    printf("[vmu-storage] Backend: %s\n", vmu_storage_backend_name());
+    printf("[vmu-storage] Backend: %s%s\n", vmu_storage_backend_name(),
+           sd_backup_active ? " + SD backup" : "");
 }
 
 void vmu_storage_task(void) {
@@ -133,7 +171,13 @@ void vmu_storage_task(void) {
         case VMU_BACKEND_SD:   vmu_sd_task(); break;
 #endif
 #ifdef CONFIG_VMU_QSPI
-        case VMU_BACKEND_QSPI: qspi_task(); break;
+        case VMU_BACKEND_QSPI:
+            qspi_task();
+            // Also flush to SD backup if available
+#ifdef CONFIG_SD
+            if (sd_backup_active) vmu_sd_task();
+#endif
+            break;
 #endif
         default: break;
     }

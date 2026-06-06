@@ -46,7 +46,10 @@ typedef enum {
 
 // Initialize VMU — call from dreamcast_init()
 void vmu_init(uint8_t port_addr);
-void vmu_sd_load(void);  // Call after Maple Bus enumeration to load SD data
+bool vmu_sd_load(void);  // Call after Maple Bus enumeration; returns true if storage backend available
+
+// Volatile activity flag — set by Core 1 on any VMU read/write, cleared by Core 0
+extern volatile bool vmu_activity_flag;
 
 // Build pre-built response packets — call from dreamcast_init()
 void vmu_build_packets(uint8_t port_addr);

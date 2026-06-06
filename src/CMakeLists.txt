@@ -656,7 +656,7 @@ pico_generate_pio_header(joypad_dc ${CMAKE_CURRENT_LIST_DIR}/native/device/dream
 # USB4Maple-compatible pinout: GPIO 14/15 for Maple Bus
 add_executable(joypad_dc_rp2040zero)
 target_compile_definitions(joypad_dc_rp2040zero PRIVATE
-    CONFIG_DC=1 CONFIG_USB_HOST=1 CONFIG_DC_CORE1_TX=1 CONFIG_VMU=1
+    CONFIG_DC=1 CONFIG_USB_HOST=1 CONFIG_DC_CORE1_TX=1 CONFIG_VMU=1 CONFIG_VMU_QSPI=1 CONFIG_NO_FLASH_LOCKOUT=1
     MAPLE_PIN1=14
     MAPLE_PIN5=15
     WS2812_PIN=16

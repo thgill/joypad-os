@@ -16,6 +16,7 @@
 // Creates the file from the pre-formatted image if not found.
 // Call once from Core 0 at startup. Returns true on success.
 bool vmu_sd_init(void);
+bool vmu_sd_mount(void);  // Mount SD without loading VMU file (QSPI-primary builds)
 
 // Periodic flush task — call from Core 0 main loop (via vmu_task()).
 void vmu_sd_task(void);

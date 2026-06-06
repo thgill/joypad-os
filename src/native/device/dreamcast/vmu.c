@@ -27,7 +27,8 @@
 // 128KB RAM buffer for VMU image
 // NOTE: RP2040 has 264KB SRAM total — JoypadOS uses ~50KB so this fits
 uint8_t vmu_ram[VMU_TOTAL_BLOCKS * VMU_BLOCK_SIZE];
-volatile bool vmu_dirty_flag = false;  // Set by Core 1, read by Core 0
+volatile bool vmu_dirty_flag = false;    // Set by Core 1, read by Core 0
+volatile bool vmu_activity_flag = false; // Set by Core 1 on any read/write, cleared by Core 0
 
 static uint8_t write_buf[VMU_BLOCK_SIZE] __attribute__((aligned(4)));
 static uint16_t write_block  = 0xFFFF;
@@ -209,9 +210,11 @@ void vmu_init(uint8_t port_addr) {
 // Called after controller enumerates with DC — selects a persistence backend
 // (USB flash > SD > QSPI > RAM) and loads any saved image. Deferred from
 // vmu_init() to avoid blocking Maple Bus enumeration.
-void vmu_sd_load(void) {
-    vmu_sd_init();
-    printf("[VMU] Storage load complete\n");
+bool vmu_sd_load(void) {
+    // vmu_storage_init() probes QSPI first (primary), then SD as backup.
+    // Returns true if any persistent backend is available (QSPI always is).
+    vmu_storage_init();
+    return vmu_storage_backend() != VMU_BACKEND_NONE;
 }
 
 void vmu_set_slot(uint8_t slot)  { (void)slot; }
@@ -226,6 +229,8 @@ const void* __not_in_flash_func(vmu_get_block_read_packet)(uint32_t *sz)      { 
 const void* __not_in_flash_func(vmu_get_ack_packet)(uint32_t *sz)             { *sz=sizeof(vmu_ack_pkt)/4;       return &vmu_ack_pkt; }
 
 const void* __not_in_flash_func(vmu_handle_block_read)(const uint32_t *pkt, uint32_t *sz) {
+    // Signal Core 0 to show VMU activity LED
+    vmu_activity_flag = true;
     uint16_t block = (uint16_t)((pkt[1] >> 24) & 0xFF);
     if (block >= VMU_TOTAL_BLOCKS) block = 0;
     VmuBlockReadPkt *p = &vmu_block_read_pkt;
@@ -260,9 +265,11 @@ void __not_in_flash_func(vmu_handle_write_complete)(void) {
     vmu_status = VMU_STATUS_OK;
     // Signal Core 0 to flush to SD — use volatile flag, safe from RAM context
     vmu_dirty_flag = true;
+    // Signal Core 0 to show VMU activity LED
+    vmu_activity_flag = true;
 }
 
 void vmu_task(void) {
-    // Flush dirty VMU RAM to the active backend when its writeback timer expires
+    // Flush dirty VMU RAM to active backend (QSPI + SD backup if available)
     vmu_storage_task();
 }

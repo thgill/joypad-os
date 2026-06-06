@@ -141,6 +141,18 @@ void dreamcast_init(void);
 // Core 1 task (real-time Maple Bus handling)
 void __not_in_flash_func(dreamcast_core1_task)(void);
 
+// Returns current Maple Bus RX packet count (increments each packet Core 1 processes).
+// Use to detect bus idle: if count hasn't changed, no packet is in flight.
+uint32_t dreamcast_rx_count(void);
+
+// Pause/resume Maple Bus TX responses — set before flash erase/program,
+// clear immediately after. Core 1 skips sending while paused; DC retries
+// on next 16.7ms frame. Keep pause under ~10ms to avoid DC dropout.
+void dreamcast_set_maple_pause(bool pause);
+
+// LED timeout — set by VMU activity handlers, cleared by dreamcast_task()
+extern uint32_t vmu_led_timeout_ms;
+
 // Core 0 task (periodic maintenance)
 void dreamcast_task(void);
 

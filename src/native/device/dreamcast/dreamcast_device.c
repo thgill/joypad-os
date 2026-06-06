@@ -14,6 +14,7 @@
 // - PIO1 SM3: available for other protocols (e.g., N64 joybus at offset 10)
 
 #include "dreamcast_device.h"
+#include "core/services/leds/leds.h"
 #include "maple_state_machine.h"
 #ifdef CONFIG_VMU
 #include "vmu.h"
@@ -916,6 +917,17 @@ static volatile uint32_t core1_state = 0;  // 0=not started, 1=building, 2=ready
 // Handshake flags (can't use FIFO - it's used by flash_safe_execute lockout)
 static volatile bool core1_ready = false;
 static volatile bool core0_started_pio = false;
+static volatile bool maple_tx_pause = false;  // Set by Core 0 before flash writes
+
+// LED feedback for VMU activity
+#define LED_VMU_IDLE_R      64
+#define LED_VMU_IDLE_G      32
+#define LED_VMU_IDLE_B       0   // Amber — controller connected, idle
+#define LED_VMU_ACTIVE_R     0
+#define LED_VMU_ACTIVE_G     0
+#define LED_VMU_ACTIVE_B    64   // Blue — VMU active (read/write/flush)
+
+uint32_t vmu_led_timeout_ms = 0;  // Non-zero = VMU activity LED active
 
 // Packet notification (can't use FIFO - use ring buffer with volatile indices)
 static volatile uint32_t packet_end_write = 0;  // Written by Core1
@@ -1004,13 +1016,16 @@ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
 
 
                 // Send response immediately via DMA
-                if (NextPacketSend != SEND_NOTHING) {
-                    if (dma_channel_is_busy(tx_dma_channel)) {
-                        tx_busy_count++;
-                    }
-                    if (!dma_channel_is_busy(tx_dma_channel)) {
-                        tx_sent_count++;
-                        switch (NextPacketSend) {
+                // SendPacket() waits for DMA completion internally, so no
+                // need to check dma_channel_is_busy() here — doing so caused
+                // responses to be silently dropped when DMA was busy, which
+                // manifested as intermittent enumeration failures.
+                // maple_tx_pause: Core 0 sets this before flash erase/program
+                // to avoid corrupting an in-flight transmission. Core 1 skips
+                // sending for at most one 16.7ms DC poll frame.
+                if (NextPacketSend != SEND_NOTHING && !maple_tx_pause) {
+                    tx_sent_count++;
+                    switch (NextPacketSend) {
                         case SEND_CONTROLLER_INFO:
                             SendPacket((uint32_t *)pInfoPacket, sizeof(InfoPacket) / sizeof(uint32_t));
                             break;
@@ -1098,7 +1113,6 @@ static void __no_inline_not_in_flash_func(core1_rx_task)(void)
                         default:
                             break;
                         }
-                    }
                     NextPacketSend = SEND_NOTHING;
                 }
 #else
@@ -1286,6 +1300,22 @@ void __not_in_flash_func(dreamcast_core1_task)(void)
     // Never returns
 }
 
+// Returns current Maple Bus RX packet count — increments each time Core 1
+// finishes processing a packet. Used by QSPI backend to detect bus idle:
+// if count hasn't changed since last check, no packet is in flight.
+uint32_t dreamcast_rx_count(void)
+{
+    return rx_ends_count;
+}
+
+// Pause/resume Maple Bus TX — call before/after flash erase+program.
+// Core 1 skips sending responses while paused; the DC retries on the
+// next 16.7ms frame. Keep pause duration under ~10ms to avoid DC dropout.
+void dreamcast_set_maple_pause(bool pause)
+{
+    maple_tx_pause = pause;
+}
+
 // ============================================================================
 // CORE 0 TASK (packet processing and TX)
 // ============================================================================
@@ -1315,13 +1345,68 @@ void dreamcast_task(void)
     // SD card load also deferred here to avoid blocking Maple Bus enumeration at boot
 #ifdef CONFIG_VMU
     if (!vmu_enabled && time_us_32() > vmu_enable_time) {
-        vmu_sd_load();          // Load saved VMU from SD (deferred from boot)
-        dreamcast_enable_vmu(); // Advertise VMU to DC
+        // QSPI is always available so VMU is always advertised.
+        // vmu_sd_load() also sets up SD as backup if a card is present.
+        vmu_sd_load();
+        dreamcast_enable_vmu();
         vmu_enabled = true;
-        printf("[DC] VMU+rumble advertisement enabled (addr 0x23)\n");
+        printf("[DC] VMU+rumble advertisement enabled\n");
     }
 #else
     (void)vmu_enabled; (void)vmu_enable_time;
+#endif
+
+    // VMU LED — driven from Core 0 using volatile flags set by Core 1
+#ifdef CONFIG_VMU
+    extern volatile bool vmu_dirty_flag;
+    extern volatile bool vmu_activity_flag;
+    static bool vmu_led_on = false;
+    static uint32_t vmu_led_blink_ms = 0;
+    static uint32_t vmu_read_flash_ms = 0;  // Brief flash for read activity
+
+    uint32_t vmu_now_ms = to_ms_since_boot(get_absolute_time());
+
+    // Latch activity flag — covers both reads and writes
+    if (vmu_activity_flag) {
+        vmu_activity_flag = false;
+        if (!vmu_dirty_flag) {
+            // Read-only activity — flash blue briefly then return to amber
+            vmu_read_flash_ms = vmu_now_ms + 300;
+        }
+        vmu_led_timeout_ms = 1;
+    }
+
+    if (vmu_dirty_flag) {
+        // Write pending flush — blink blue until flushed
+        vmu_read_flash_ms = 0;  // Cancel any read flash
+        if (vmu_now_ms - vmu_led_blink_ms >= 150) {
+            vmu_led_blink_ms = vmu_now_ms;
+            vmu_led_on = !vmu_led_on;
+            leds_set_color(vmu_led_on ? LED_VMU_ACTIVE_R : 0,
+                           vmu_led_on ? LED_VMU_ACTIVE_G : 0,
+                           vmu_led_on ? LED_VMU_ACTIVE_B : 0);
+        }
+        vmu_led_timeout_ms = 1;
+    } else if (vmu_read_flash_ms != 0) {
+        // Read flash — solid blue briefly
+        leds_set_color(LED_VMU_ACTIVE_R, LED_VMU_ACTIVE_G, LED_VMU_ACTIVE_B);
+        if (vmu_now_ms > vmu_read_flash_ms) {
+            vmu_read_flash_ms = 0;
+            vmu_led_timeout_ms = 0;
+            vmu_led_on = false;
+            leds_set_color(LED_VMU_IDLE_R, LED_VMU_IDLE_G, LED_VMU_IDLE_B);
+        }
+    } else if (vmu_led_timeout_ms != 0) {
+        // Activity done — return to idle
+        vmu_led_timeout_ms = 0;
+        vmu_led_on = false;
+        leds_set_color(LED_VMU_IDLE_R, LED_VMU_IDLE_G, LED_VMU_IDLE_B);
+    }
+
+    // Safety: ensure maple_tx_pause never gets stuck
+    if (maple_tx_pause && !vmu_dirty_flag) {
+        maple_tx_pause = false;
+    }
 #endif
 
     // Periodic debug output (every 5 seconds)
