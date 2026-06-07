@@ -1,5 +1,6 @@
 // google_stadia.c - Google Stadia Controller driver
 #include "google_stadia.h"
+#include <stdio.h>
 #include "core/buttons.h"
 #include "core/router/router.h"
 #include "core/input_event.h"

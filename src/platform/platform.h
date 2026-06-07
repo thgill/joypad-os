@@ -11,7 +11,7 @@
 
 // RP2040 __not_in_flash_func places functions in RAM for timing.
 // On non-RP2040 platforms this is not needed — define as no-op.
-#if defined(PLATFORM_ESP32) || defined(PLATFORM_NRF)
+#if defined(PLATFORM_ESP32) || defined(PLATFORM_NRF) || defined(PLATFORM_CH32)
   #ifndef __not_in_flash_func
     #define __not_in_flash_func(func) func
   #endif

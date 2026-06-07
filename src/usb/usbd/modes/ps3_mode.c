@@ -3,6 +3,7 @@
 // Copyright 2024 Robert Dale Smith
 
 #include "tusb.h"
+#include <stdio.h>
 #include "../usbd_mode.h"
 #include "../usbd.h"
 #include "descriptors/ps3_descriptors.h"

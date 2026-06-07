@@ -9,8 +9,8 @@
 #include "core/services/storage/flash.h"
 #include "platform/platform.h"
 #include "tusb.h"
-#ifdef CONFIG_GC2USB
-#include "hardware/gpio.h"  // gpio_get for JOYPIN? diagnostic (RP2040 only)
+#if defined(CONFIG_GC2USB) || (CFG_TUD_VENDOR && defined(CONFIG_JOYBUS_BRIDGE))
+#include "hardware/gpio.h"  // gpio_get for JOYPIN?/GBADETECT diagnostics (RP2040 only)
 #endif
 #include <stdio.h>
 #include <string.h>

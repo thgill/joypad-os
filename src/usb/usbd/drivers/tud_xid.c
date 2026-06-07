@@ -148,7 +148,7 @@ static uint16_t xid_open(uint8_t rhport, tusb_desc_interface_t const* itf_desc, 
 
     // Start receiving on OUT endpoint
     if (_xid_itf.ep_out != 0xFF) {
-        usbd_edpt_xfer(rhport, _xid_itf.ep_out, _xid_itf.ep_out_buf, sizeof(_xid_itf.ep_out_buf));
+        usbd_edpt_xfer(rhport, _xid_itf.ep_out, _xid_itf.ep_out_buf, sizeof(_xid_itf.ep_out_buf), false);
     }
 
     TU_LOG1("[XID] Opened interface %u, EP IN=0x%02X, EP OUT=0x%02X\r\n",
@@ -243,7 +243,7 @@ static bool xid_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, u
         }
 
         // Queue next receive
-        usbd_edpt_xfer(rhport, _xid_itf.ep_out, _xid_itf.ep_out_buf, sizeof(_xid_itf.ep_out_buf));
+        usbd_edpt_xfer(rhport, _xid_itf.ep_out, _xid_itf.ep_out_buf, sizeof(_xid_itf.ep_out_buf), false);
     }
 
     return true;
@@ -300,7 +300,7 @@ bool tud_xid_send_report(const xbox_og_in_report_t* report)
         tud_remote_wakeup();
     }
 
-    return usbd_edpt_xfer(0, _xid_itf.ep_in, _xid_itf.ep_in_buf, sizeof(xbox_og_in_report_t));
+    return usbd_edpt_xfer(0, _xid_itf.ep_in, _xid_itf.ep_in_buf, sizeof(xbox_og_in_report_t), false);
 }
 
 bool tud_xid_get_rumble(xbox_og_out_report_t* rumble)

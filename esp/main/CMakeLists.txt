@@ -120,6 +120,7 @@ elseif(CONFIG_APP STREQUAL "usb2usb")
         "${SHARED_SRC}/usb/usbh/hid/devices/vendors/sony/sony_ds4.c"
         "${SHARED_SRC}/usb/usbh/hid/devices/vendors/sony/sony_ds5.c"
         "${SHARED_SRC}/usb/usbh/hid/devices/vendors/sony/sony_psc.c"
+        "${SHARED_SRC}/usb/usbh/hid/devices/vendors/valve/steam_controller_2.c"
 
         # --- XInput host driver (tusb_xinput library) ---
         "${SHARED_SRC}/lib/tusb_xinput/xinput_host.c"
@@ -189,6 +190,7 @@ elseif(CONFIG_APP STREQUAL "btusb2usb")
         "${SHARED_SRC}/usb/usbh/hid/devices/vendors/sony/sony_ds4.c"
         "${SHARED_SRC}/usb/usbh/hid/devices/vendors/sony/sony_ds5.c"
         "${SHARED_SRC}/usb/usbh/hid/devices/vendors/sony/sony_psc.c"
+        "${SHARED_SRC}/usb/usbh/hid/devices/vendors/valve/steam_controller_2.c"
 
         # --- XInput host driver (tusb_xinput library) ---
         "${SHARED_SRC}/lib/tusb_xinput/xinput_host.c"
@@ -267,10 +269,10 @@ set(SRCS
     "${TINYUSB_PATH}/src/tusb.c"
     "${TINYUSB_PATH}/src/common/tusb_fifo.c"
     "${TINYUSB_PATH}/src/device/usbd.c"
-    "${TINYUSB_PATH}/src/device/usbd_control.c"
     "${TINYUSB_PATH}/src/class/cdc/cdc_device.c"
     "${TINYUSB_PATH}/src/class/hid/hid_device.c"
-    "${TINYUSB_PATH}/src/portable/espressif/esp32sx/dcd_esp32sx.c"
+    "${TINYUSB_PATH}/src/portable/synopsys/dwc2/dcd_dwc2.c"
+    "${TINYUSB_PATH}/src/portable/synopsys/dwc2/dwc2_common.c"
 )
 
 # Add BTstack sources when needed

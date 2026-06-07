@@ -98,6 +98,17 @@ void usbh_init(void)
     } else {
         printf("[usbh] MAX3421E not detected, USB host disabled\n");
     }
+#elif defined(PLATFORM_CH32)
+    // CH32V307: native USBFS host on rhport 1 (USBHS device owns rhport 0).
+    // The USBFS controller is wired as host by the BSP (family.c); the async
+    // ch32 HCD (src/portable/wch/hcd_ch32_usbfs.c) drives it. Full speed only.
+    {
+        tusb_rhport_init_t host_init = {
+            .role = TUSB_ROLE_HOST,
+            .speed = TUSB_SPEED_FULL
+        };
+        tusb_init(BOARD_TUH_RHPORT, &host_init);
+    }
 #elif defined(CONFIG_USB) && CFG_TUH_RPI_PIO_USB
     // Dual USB mode: Host on rhport 1 (PIO USB for boards with separate host port)
 

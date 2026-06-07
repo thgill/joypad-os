@@ -83,13 +83,19 @@ def main():
     if args.clean and out.exists():
         print(f"[train] wiping {out}")
         shutil.rmtree(out)
-    out.mkdir(parents=True, exist_ok=True)
+    # lerobot-train's validate() refuses to start when the output dir
+    # exists (unless --resume), so DON'T create it ourselves — only the
+    # parent directory. lerobot makes the run dir itself.
+    out.parent.mkdir(parents=True, exist_ok=True)
 
     device = args.device or detect_device()
     print(f"[train] device = {device}")
 
+    # Use the current interpreter so we don't depend on the venv being
+    # on PATH (lerobot-train script is in .venv/bin/ but parent shells
+    # invoking us via .venv/bin/python don't have it on PATH).
     cmd = [
-        "lerobot-train",
+        sys.executable, "-m", "lerobot.scripts.lerobot_train",
         f"--dataset.repo_id={args.repo_id}",
         f"--dataset.root={args.root}",
         f"--policy.type={args.policy_type}",

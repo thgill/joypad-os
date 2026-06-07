@@ -95,12 +95,23 @@ def show_frame(screen, rgb, scale, font, info):
 
 
 def build_features():
-    """LeRobotDataset feature spec: one camera, one action vector."""
+    """LeRobotDataset feature spec: one camera, one action vector.
+
+    observation.state is a zero-filled placeholder — every lerobot policy
+    we'd reasonably train on this data (ACT / Diffusion / VQBeT) hard-
+    requires it even when the architecture supports state-less inputs
+    (their forward passes do batch[OBS_STATE].device unconditionally).
+    A (1,) zero is the smallest valid shape that keeps the API happy."""
     return {
         "observation.image": {
             "dtype": "video",
             "shape": (240, 256, 3),
             "names": ["height", "width", "channels"],
+        },
+        "observation.state": {
+            "dtype": "float32",
+            "shape": (4,),
+            "names": ["dummy_0", "dummy_1", "dummy_2", "dummy_3"],
         },
         "action": {
             "dtype": "float32",
@@ -212,6 +223,7 @@ def main():
             if recording:
                 dataset.add_frame({
                     "observation.image": state,
+                    "observation.state": np.zeros(4, dtype=np.float32),
                     "action": action_vec,
                     "task": args.task,
                 })

@@ -74,7 +74,7 @@ static void cyw43_led_update(int devices)
 #endif
 #include "core/buttons.h"
 #include "tusb.h"
-#if !defined(PLATFORM_NRF) && !defined(PLATFORM_ESP32)
+#if !defined(PLATFORM_NRF) && !defined(PLATFORM_ESP32) && !defined(PLATFORM_CH32)
 #include "pico/stdlib.h"
 #endif
 #include "platform/platform.h"

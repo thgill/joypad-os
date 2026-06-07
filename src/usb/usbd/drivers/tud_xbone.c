@@ -156,7 +156,7 @@ static bool send_report_internal(uint8_t* report, uint16_t len)
 
     if (tud_ready() && (p_xbone->ep_in != 0) && (!usbd_edpt_busy(0, p_xbone->ep_in))) {
         usbd_edpt_claim(0, p_xbone->ep_in);
-        bool ret = usbd_edpt_xfer(0, p_xbone->ep_in, report, len);
+        bool ret = usbd_edpt_xfer(0, p_xbone->ep_in, report, len, false);
         usbd_edpt_release(0, p_xbone->ep_in);
         return ret;
     }
@@ -238,7 +238,7 @@ static uint16_t xbone_open(uint8_t rhport, tusb_desc_interface_t const* itf_desc
 
         // Prepare OUT endpoint for receiving
         if (p_xbone->ep_out) {
-            if (!usbd_edpt_xfer(rhport, p_xbone->ep_out, p_xbone->epout_buf, sizeof(p_xbone->epout_buf))) {
+            if (!usbd_edpt_xfer(rhport, p_xbone->ep_out, p_xbone->epout_buf, sizeof(p_xbone->epout_buf), false)) {
                 TU_LOG1("XBONE: Failed to start OUT transfer\r\n");
             }
         }
@@ -317,7 +317,7 @@ static bool xbone_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result,
 
         // Ready for next packet
         TU_ASSERT(usbd_edpt_xfer(rhport, p_xbone->ep_out, p_xbone->epout_buf,
-                                  sizeof(p_xbone->epout_buf)));
+                                  sizeof(p_xbone->epout_buf), false));
     }
 
     return true;

@@ -4,6 +4,7 @@
 // Uses the universal profile system for button remapping.
 
 #include "gamecube_device.h"
+#include <stdio.h>
 #include "gamecube_buttons.h"
 #include "joybus.pio.h"
 #include "GamecubeConsole.h"

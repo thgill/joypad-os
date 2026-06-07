@@ -1,6 +1,7 @@
 // nuon.c
 
 #include "nuon_device.h"
+#include <stdio.h>
 #ifdef BTSTACK_USE_CYW43
 #include "pico/cyw43_arch.h"
 #endif

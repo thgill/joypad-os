@@ -98,7 +98,12 @@ static char usb_serial_str[USB_SERIAL_LEN + 1];
 #endif
 static usb_output_mode_t output_mode = USBD_DEFAULT_MODE;
 #else
-static usb_output_mode_t output_mode = USB_OUTPUT_MODE_SINPUT;
+// Default to SInput, but allow a build to override (e.g. CH32 wch/ uses DInput so
+// the gamepad presents as a standard class-3 HID device for hosts/testers).
+#ifndef USBD_DEFAULT_MODE
+#define USBD_DEFAULT_MODE USB_OUTPUT_MODE_SINPUT
+#endif
+static usb_output_mode_t output_mode = USBD_DEFAULT_MODE;
 #endif
 
 // Forward declaration (defined in CONFIGURATION DESCRIPTOR section)
@@ -420,7 +425,10 @@ bool usbd_set_mode(usb_output_mode_t mode)
     // Brief delay to allow flash write to complete
     platform_sleep_ms(50);
 
-    // Trigger device reset to re-enumerate with new descriptors
+    // Trigger device reset to re-enumerate with new descriptors. The CH32 USBHS
+    // re-enumerates cleanly only via a full reset (a live pull-up toggle leaves
+    // the SIE unable to re-attach); the saved mode survives the reset because the
+    // CH32 settings buffer lives in a .noinit section (see flash_wch.c).
     printf("[usbd] Resetting device for re-enumeration...\n");
     flush_debug_output();
     platform_reboot();
@@ -1463,11 +1471,20 @@ const OutputInterface usbd_output_interface = {
 // INTERFACE AND ENDPOINT NUMBERS
 // ============================================================================
 
-// Interface numbers (SInput composite: 3 HID + CDC on RP2040, 1 HID + CDC on ESP32)
+// Platforms with a tight endpoint/FIFO budget carry only gamepad + CDC and skip
+// the keyboard/mouse HID interfaces. This keeps composite interface numbers
+// CONTIGUOUS (gamepad=0, CDC=1,2) for every mode — without it, a mode that omits
+// keyboard/mouse (e.g. DInput) leaves a gap at interface 1,2 while CDC sits at 3,4,
+// and hosts reject the whole device. ESP32-S3 DWC2 has 4 TX FIFOs; CH32 USBHS is
+// likewise endpoint-limited and its FS-oriented descriptors enumerate cleaner lean.
+#if defined(PLATFORM_ESP32) || defined(PLATFORM_CH32)
+#define USBD_LEAN_HID_COMPOSITE 1
+#endif
+
+// Interface numbers (SInput composite: 3 HID + CDC on RP2040, 1 HID + CDC on lean)
 // HID interface numbers are defined in usbd.h (ITF_NUM_HID_GAMEPAD=0, KEYBOARD=1, MOUSE=2)
-#ifdef PLATFORM_ESP32
-// ESP32-S3 DWC2 OTG has only 4 non-control TX FIFOs, so we skip keyboard+mouse
-// to keep total IN endpoints <= 4 (gamepad + CDC notif + CDC data = 3)
+#ifdef USBD_LEAN_HID_COMPOSITE
+// Skip keyboard+mouse so total IN endpoints stay low (gamepad + CDC notif + CDC data = 3)
 enum {
 #if CFG_TUD_CDC >= 1
     ITF_NUM_CDC_0 = ITF_NUM_HID_GAMEPAD + 1,
@@ -1491,8 +1508,8 @@ enum {
 // Endpoint numbers
 #define EPNUM_HID_GAMEPAD       0x81  // Gamepad IN
 #define EPNUM_HID_GAMEPAD_OUT   0x01  // Gamepad OUT (rumble/output reports)
-#ifndef PLATFORM_ESP32
-// Keyboard/mouse endpoints only on RP2040 (ESP32 skips these to save FIFOs)
+#ifndef USBD_LEAN_HID_COMPOSITE
+// Keyboard/mouse endpoints only on full composite (lean builds skip these)
 #define EPNUM_HID_KEYBOARD      0x82  // Keyboard IN
 #define EPNUM_HID_MOUSE         0x83  // Mouse IN
 #endif
@@ -1502,7 +1519,7 @@ enum {
 #define EPNUM_HID_OUT       EPNUM_HID_GAMEPAD_OUT
 
 #if CFG_TUD_CDC >= 1
-#ifdef PLATFORM_ESP32
+#ifdef USBD_LEAN_HID_COMPOSITE
 // CDC endpoints shifted down (no keyboard/mouse endpoints)
 #define EPNUM_CDC_0_NOTIF   0x82
 #define EPNUM_CDC_0_OUT     0x03
@@ -1617,7 +1634,7 @@ static const uint8_t desc_frag_hid_gamepad[] = {
 static const uint8_t desc_frag_sinput_gamepad[] = {
     TUD_HID_INOUT_DESCRIPTOR(ITF_NUM_HID_GAMEPAD, 0, HID_ITF_PROTOCOL_NONE, sizeof(sinput_report_descriptor), EPNUM_HID_GAMEPAD_OUT, EPNUM_HID_GAMEPAD, CFG_TUD_HID_EP_BUFSIZE, 1),
 };
-#ifndef PLATFORM_ESP32
+#ifndef USBD_LEAN_HID_COMPOSITE
 static const uint8_t desc_frag_sinput_keyboard[] = {
     TUD_HID_DESCRIPTOR(ITF_NUM_HID_KEYBOARD, 0, HID_ITF_PROTOCOL_NONE, sizeof(sinput_keyboard_report_descriptor), EPNUM_HID_KEYBOARD, 16, 1),
 };
@@ -1628,7 +1645,15 @@ static const uint8_t desc_frag_sinput_mouse[] = {
 
 // CDC 0 fragment (data port - always present)
 static const uint8_t desc_frag_cdc0[] = {
+#ifdef PLATFORM_CH32
+    // CH32 runs the device at HIGH speed, where bulk endpoints MUST be 512 bytes.
+    // A 64-byte bulk endpoint is illegal at HS and makes the host's CDC composite
+    // driver fail to start — which (since it claims the whole MISC/IAD device) also
+    // orphans the HID interface. FS targets (RP2040) keep 64.
+    TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_0, 4, EPNUM_CDC_0_NOTIF, 8, EPNUM_CDC_0_OUT, EPNUM_CDC_0_IN, 512),
+#else
     TUD_CDC_DESCRIPTOR(ITF_NUM_CDC_0, 4, EPNUM_CDC_0_NOTIF, 8, EPNUM_CDC_0_OUT, EPNUM_CDC_0_IN, 64),
+#endif
 };
 
 // CDC-only fragment (no HID interfaces — CDC starts at interface 0)
@@ -1676,8 +1701,8 @@ static void build_config_descriptors(void)
     memcpy(runtime_desc_hid, hid_header, TUD_CONFIG_DESC_LEN);
 
     // --- SInput mode descriptor ---
-#ifdef PLATFORM_ESP32
-    // ESP32: gamepad only (no keyboard/mouse) to stay within 4 FIFO limit
+#ifdef USBD_LEAN_HID_COMPOSITE
+    // Lean (ESP32/CH32): gamepad only (no keyboard/mouse) to stay within EP/FIFO budget
     uint8_t sinput_itf_count = 1 + 2;  // 1 HID + CDC0 (2 interfaces)
     off = TUD_CONFIG_DESC_LEN;
     off = append_fragment(runtime_desc_sinput, off, desc_frag_sinput_gamepad, sizeof(desc_frag_sinput_gamepad));
@@ -1761,8 +1786,36 @@ uint8_t const *tud_descriptor_device_qualifier_cb(void)
     if (output_mode == USB_OUTPUT_MODE_XBONE) {
         return xbone_device_qualifier;
     }
+#ifdef PLATFORM_CH32
+    // CH32 brings the USBHS device up at HIGH speed, so the host (macOS) requests
+    // the device qualifier. A NULL→STALL here is contradictory for an HS device and
+    // leaves the composite HID/CDC functions unbound (no IOHIDDevice). Mirror the
+    // active mode's device descriptor as the FS other-speed qualifier.
+    static tusb_desc_device_qualifier_t qual;
+    const tusb_desc_device_t* dev = (const tusb_desc_device_t*)tud_descriptor_device_cb();
+    qual.bLength            = sizeof(qual);
+    qual.bDescriptorType    = TUSB_DESC_DEVICE_QUALIFIER;
+    qual.bcdUSB             = dev->bcdUSB;
+    qual.bDeviceClass       = dev->bDeviceClass;
+    qual.bDeviceSubClass    = dev->bDeviceSubClass;
+    qual.bDeviceProtocol    = dev->bDeviceProtocol;
+    qual.bMaxPacketSize0    = dev->bMaxPacketSize0;
+    qual.bNumConfigurations = dev->bNumConfigurations;
+    qual.bReserved          = 0;
+    return (uint8_t const*)&qual;
+#else
     return NULL;
+#endif
 }
+
+#ifdef PLATFORM_CH32
+// After a valid qualifier the host requests the OTHER_SPEED_CONFIGURATION. The
+// device behaves identically at FS, so report the active config descriptor.
+uint8_t const *tud_descriptor_other_speed_configuration_cb(uint8_t index)
+{
+    return tud_descriptor_configuration_cb(index);
+}
+#endif
 
 // ============================================================================
 // STRING DESCRIPTORS

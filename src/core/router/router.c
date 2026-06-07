@@ -258,7 +258,9 @@ static instance_merge_t instance_merges[MAX_OUTPUTS][MAX_PLAYERS_PER_OUTPUT];
 // MERGE_BLEND STATE - Per-device input tracking for proper blending
 // ============================================================================
 
-#define MAX_BLEND_DEVICES 8  // Max devices to track for blending
+#ifndef MAX_BLEND_DEVICES
+#define MAX_BLEND_DEVICES 8  // Max devices to track for blending (overridable for low-RAM targets)
+#endif
 
 typedef struct {
     uint8_t dev_addr;

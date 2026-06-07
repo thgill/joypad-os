@@ -16,6 +16,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ms_sidewinder_commander.h"
+#include <stdio.h>
 #include "core/buttons.h"
 #include "core/router/router.h"
 #include "core/input_event.h"

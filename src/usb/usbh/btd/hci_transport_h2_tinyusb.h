@@ -127,7 +127,7 @@ extern const usbh_class_driver_t usbh_btstack_driver;
 // Driver callbacks (called by TinyUSB)
 bool btstack_driver_init(void);
 bool btstack_driver_deinit(void);
-bool btstack_driver_open(uint8_t rhport, uint8_t dev_addr,
+uint16_t btstack_driver_open(uint8_t rhport, uint8_t dev_addr,
                          tusb_desc_interface_t const* desc_itf, uint16_t max_len);
 bool btstack_driver_set_config(uint8_t dev_addr, uint8_t itf_num);
 bool btstack_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr,

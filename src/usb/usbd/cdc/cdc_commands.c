@@ -14,7 +14,7 @@
 #include "core/services/players/manager.h"
 #include "core/services/players/feedback.h"
 #include "platform/platform.h"
-#if !defined(PLATFORM_ESP32) && !defined(PLATFORM_NRF)
+#if !defined(PLATFORM_ESP32) && !defined(PLATFORM_NRF) && !defined(PLATFORM_CH32)
 #include "pico/stdio.h"
 #include "pico/stdio/driver.h"
 #endif
@@ -82,7 +82,7 @@ static void log_stdio_out_chars(const char *buf, int len)
     }
 }
 
-#if defined(PLATFORM_ESP32) || defined(PLATFORM_NRF)
+#if defined(PLATFORM_ESP32) || defined(PLATFORM_NRF) || defined(PLATFORM_CH32)
 // ESP32/nRF: capture printf by replacing stdout with a custom FILE* (funopen)
 // that feeds output into the ring buffer AND writes to the original output.
 static FILE *platform_orig_stdout = NULL;
@@ -2855,7 +2855,7 @@ void cdc_commands_init(void)
     cdc_protocol_init(&protocol_ctx, packet_handler);
 
     // Register stdio hook to capture printf output into ring buffer
-#if defined(PLATFORM_ESP32) || defined(PLATFORM_NRF)
+#if defined(PLATFORM_ESP32) || defined(PLATFORM_NRF) || defined(PLATFORM_CH32)
     // Replace stdout with a tee: ring buffer + original output
     platform_orig_stdout = stdout;
     FILE *f = funopen(NULL, NULL, platform_log_writefn, NULL, NULL);

@@ -740,6 +740,23 @@ target_link_libraries(joypad_neogeo_rp2040zero PRIVATE ${COMMON_LIBRARIES})
 joypad_target_common(joypad_neogeo_rp2040zero)
 joypad_add_btstack(joypad_neogeo_rp2040zero)
 
+add_executable(joypad_neogeo_retrofrog)
+target_compile_definitions(joypad_neogeo_retrofrog PRIVATE
+    CONFIG_NEOGEO=1
+    PICO_RP2040_ZERO_BUILD=1
+)
+target_sources(joypad_neogeo_retrofrog PUBLIC ${COMMON_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/gpio/gpio_device.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2neogeo/app.c
+)
+target_include_directories(joypad_neogeo_retrofrog PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2neogeo
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/neogeo
+)
+target_link_libraries(joypad_neogeo_retrofrog PRIVATE ${COMMON_LIBRARIES})
+joypad_target_common(joypad_neogeo_retrofrog)
+joypad_add_btstack(joypad_neogeo_retrofrog)
+
 # --- N64 to Dreamcast ---
 add_executable(joypad_n642dc)
 # Core 0 TX mode required: joybus uses PIO1 SM3, conflicts with Core 1 TX
@@ -1139,6 +1156,7 @@ target_sources(joypad_usb_feather_rp2040_max3421 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/display.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/display_i2c.c
     ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/joy_anim.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/eyes_anim.c
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2usb/app.c
 )
 target_include_directories(joypad_usb_feather_rp2040_max3421 PUBLIC

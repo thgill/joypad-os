@@ -1,6 +1,7 @@
 // sinput_host.c - SInput USB Host Driver
 // Reads SInput controllers for full-fidelity input passthrough.
 #include "sinput_host.h"
+#include <stdio.h>
 #include "core/buttons.h"
 #include "core/router/router.h"
 #include "core/input_event.h"

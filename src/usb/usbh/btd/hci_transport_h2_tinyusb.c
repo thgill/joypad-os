@@ -770,7 +770,7 @@ bool btstack_driver_deinit(void)
     return true;
 }
 
-bool btstack_driver_open(uint8_t rhport, uint8_t dev_addr,
+uint16_t btstack_driver_open(uint8_t rhport, uint8_t dev_addr,
                          tusb_desc_interface_t const* desc_itf, uint16_t max_len)
 {
     (void)rhport;
@@ -791,13 +791,13 @@ bool btstack_driver_open(uint8_t rhport, uint8_t dev_addr,
                            desc_itf->bInterfaceNumber == 0);  // Only claim interface 0
 
     if (!is_standard_bt && !is_broadcom_bt) {
-        return false;
+        return 0;
     }
 
     // Guard against double-open (dev_addr is set on first open)
     if (usb_state.dev_addr == dev_addr && usb_state.ep_evt_in != 0) {
         printf("[HCI_USB] Dongle already opened at addr %d\n", dev_addr);
-        return true;
+        return max_len;  // already open; claim the interface block
     }
 
     printf("[HCI_USB] Bluetooth dongle found at addr %d\n", dev_addr);
@@ -823,7 +823,7 @@ bool btstack_driver_open(uint8_t rhport, uint8_t dev_addr,
 
                     if (!tuh_edpt_open(dev_addr, ep)) {
                         printf("[HCI_USB] Failed to open event endpoint\n");
-                        return false;
+                        return 0;
                     }
                 }
             }
@@ -835,7 +835,7 @@ bool btstack_driver_open(uint8_t rhport, uint8_t dev_addr,
 
                     if (!tuh_edpt_open(dev_addr, ep)) {
                         printf("[HCI_USB] Failed to open ACL IN endpoint\n");
-                        return false;
+                        return 0;
                     }
                 } else {
                     usb_state.ep_acl_out = ep->bEndpointAddress;
@@ -843,7 +843,7 @@ bool btstack_driver_open(uint8_t rhport, uint8_t dev_addr,
 
                     if (!tuh_edpt_open(dev_addr, ep)) {
                         printf("[HCI_USB] Failed to open ACL OUT endpoint\n");
-                        return false;
+                        return 0;
                     }
                 }
             }
@@ -859,10 +859,10 @@ bool btstack_driver_open(uint8_t rhport, uint8_t dev_addr,
     // Verify we found all required endpoints
     if (!usb_state.ep_evt_in || !usb_state.ep_acl_in || !usb_state.ep_acl_out) {
         printf("[HCI_USB] Missing required endpoints\n");
-        return false;
+        return 0;
     }
 
-    return true;
+    return (uint16_t)((const uint8_t*)p_desc - (const uint8_t*)desc_itf);
 }
 
 bool btstack_driver_set_config(uint8_t dev_addr, uint8_t itf_num)

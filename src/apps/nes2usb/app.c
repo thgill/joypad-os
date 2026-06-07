@@ -1,4 +1,5 @@
 #include "app.h"
+#include <stdio.h>
 #include "profiles.h"
 #include "core/router/router.h"
 #include "core/services/players/manager.h"

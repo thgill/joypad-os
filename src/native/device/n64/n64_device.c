@@ -5,6 +5,7 @@
 // Follows the same pattern as gamecube_device.c.
 
 #include "n64_device.h"
+#include <stdio.h>
 #include "n64_buttons.h"
 #include "N64Console.h"
 #include "pico/bootrom.h"

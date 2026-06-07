@@ -3,6 +3,7 @@
 // Adapted to Joypad architecture
 
 #include "3do_device.h"
+#include <stdio.h>
 #include "3do_buttons.h"
 #include "3do_keyboard.h"
 #include "core/services/storage/flash.h"

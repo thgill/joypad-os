@@ -4,6 +4,7 @@
 // Based on procon2tool by HandHeldLegend
 
 #include "switch2_pro.h"
+#include <stdio.h>
 #include "core/buttons.h"
 #include "core/services/players/manager.h"
 #include "core/router/router.h"

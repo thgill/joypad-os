@@ -1,6 +1,7 @@
 // loopy.c
 
 #include "loopy_device.h"
+#include <stdio.h>
 #include "loopy_buttons.h"
 
 #include "pico/stdlib.h"

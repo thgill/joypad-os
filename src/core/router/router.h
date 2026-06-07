@@ -108,7 +108,12 @@ typedef struct {
 // ============================================================================
 
 #define MAX_OUTPUTS OUTPUT_TARGET_COUNT
+// Overridable so RAM-constrained single-output targets (e.g. CH32V307 usb2usb,
+// 64KB SRAM) can shrink the per-output state arrays. Multi-output consoles
+// (3DO/PCE multitap) need 8; a USB-HID adapter needs far fewer.
+#ifndef MAX_PLAYERS_PER_OUTPUT
 #define MAX_PLAYERS_PER_OUTPUT 8
+#endif
 
 typedef struct {
     routing_mode_t mode;

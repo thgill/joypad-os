@@ -275,6 +275,8 @@ help:
 	@echo "$(GREEN)Quick Start:$(NC)"
 	@echo "  make init          - Initialize submodules (run once after clone)"
 	@echo "  make init-esp      - Install ESP-IDF for ESP32-S3 builds"
+	@echo "  make init-nrf      - Install nRF Connect SDK for nRF52840 builds"
+	@echo "  make init-wch      - Install WCH toolchain + SDK for CH32V307 builds"
 	@echo "  make build         - Build all apps (alias for 'make all')"
 	@echo ""
 	@echo "$(GREEN)App Targets:$(NC)"
@@ -414,6 +416,53 @@ init-nrf:
 	@cd nrf && $(MAKE) init
 	@echo "$(GREEN)✓ nRF Connect SDK setup complete!$(NC)"
 	@echo "$(GREEN)  You can now run 'make bt2usb_seeed_xiao_nrf52840'$(NC)"
+	@echo ""
+
+# Initialize WCH CH32V307 toolchain + SDK (self-contained, repo-local)
+.PHONY: init-wch
+WCH_GCC_VER := 8.2.0-3.1
+WCH_GCC_BIN := wch/toolchain/xPacks/riscv-none-embed-gcc/$(WCH_GCC_VER)/bin
+init-wch:
+	@echo "$(YELLOW)Setting up WCH CH32V307 toolchain + SDK...$(NC)"
+	@git submodule update --init src/lib/tinyusb
+	@echo "$(YELLOW)Fetching WCH SDK (openwch/ch32v307)...$(NC)"
+	@sdk="src/lib/tinyusb/hw/mcu/wch/ch32v307"; \
+	if [ -f "$$sdk/EVT/EXAM/SRC/Peripheral/inc/ch32v30x.h" ]; then \
+		echo "$(GREEN)  WCH SDK already present.$(NC)"; \
+	else \
+		commit=$$(grep -A1 "hw/mcu/wch/ch32v307'" src/lib/tinyusb/tools/get_deps.py | grep -oE "[0-9a-f]{40}" | head -1); \
+		echo "  openwch/ch32v307 @ $$commit (depth 1)"; \
+		mkdir -p "$$sdk"; \
+		git -C "$$sdk" init -q; \
+		git -C "$$sdk" remote add origin https://github.com/openwch/ch32v307.git 2>/dev/null || true; \
+		git -C "$$sdk" fetch -q --depth 1 origin "$$commit"; \
+		git -C "$$sdk" checkout -q FETCH_HEAD; \
+	fi
+	@if [ -x "$(WCH_GCC_BIN)/riscv-none-embed-gcc" ]; then \
+		echo "$(GREEN)  Toolchain already installed at $(WCH_GCC_BIN)$(NC)"; \
+	else \
+		os=$$(uname -s); arch=$$(uname -m); \
+		case "$$os" in \
+			Darwin) plat=darwin-x64 ;; \
+			Linux) case "$$arch" in x86_64) plat=linux-x64 ;; i?86) plat=linux-x32 ;; \
+				*) echo "$(YELLOW)Unsupported Linux arch: $$arch$(NC)"; exit 1 ;; esac ;; \
+			*) echo "$(YELLOW)Unsupported OS '$$os' for the make-based WCH build — use WSL/Linux.$(NC)"; exit 1 ;; \
+		esac; \
+		url="https://github.com/xpack-dev-tools/riscv-none-embed-gcc-xpack/releases/download/v$(WCH_GCC_VER)/xpack-riscv-none-embed-gcc-$(WCH_GCC_VER)-$$plat.tgz"; \
+		echo "$(YELLOW)  Downloading gcc8 toolchain ($$plat, ~200MB)...$(NC)"; \
+		mkdir -p wch/toolchain; \
+		curl -fL --retry 3 -o wch/toolchain/gcc8.tgz "$$url"; \
+		echo "$(YELLOW)  Extracting...$(NC)"; \
+		tar xzf wch/toolchain/gcc8.tgz -C wch/toolchain; \
+		rm -f wch/toolchain/gcc8.tgz; \
+	fi
+	@if [ "$$(uname -s)" = "Darwin" ] && [ "$$(uname -m)" = "arm64" ]; then \
+		arch -x86_64 /usr/bin/true >/dev/null 2>&1 || \
+		printf "$(YELLOW)  Note: Apple Silicon runs the x64 toolchain via Rosetta —\n        if builds fail, run 'softwareupdate --install-rosetta'.$(NC)\n"; \
+	fi
+	@echo "$(GREEN)✓ WCH setup complete!$(NC)"
+	@echo "$(GREEN)  Build:  cd wch && make$(NC)"
+	@echo "$(GREEN)  Flash:  cd wch && make flash   (needs a WCH-LinkE probe + 'cargo install wlink')$(NC)"
 	@echo ""
 
 # Alias for all

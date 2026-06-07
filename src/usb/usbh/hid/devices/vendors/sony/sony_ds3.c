@@ -1,5 +1,6 @@
 // sony_ds3.c
 #include "sony_ds3.h"
+#include <stdio.h>
 #include "core/buttons.h"
 #include "core/services/players/manager.h"
 #include "core/router/router.h"

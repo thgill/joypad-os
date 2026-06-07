@@ -19,3 +19,6 @@ esp/.cache/
 gba/*/build/
 .vercel
 .claude/
+
+# WCH gcc8 toolchain (installed by 'make init-wch')
+wch/toolchain/

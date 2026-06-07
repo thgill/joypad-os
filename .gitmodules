@@ -1,6 +1,7 @@
 [submodule "src/lib/tusb_xinput"]
 	path = src/lib/tusb_xinput
-	url = https://github.com/RobertDaleSmith/tusb_xinput.git
+	url = https://github.com/joypad-ai/tusb_xinput.git
+	branch = dev
 [submodule "src/lib/joybus-pio"]
 	path = src/lib/joybus-pio
 	url = https://github.com/RobertDaleSmith/joybus-pio.git
@@ -10,7 +11,8 @@
 	url = https://github.com/raspberrypi/pico-sdk.git
 [submodule "src/lib/tinyusb"]
 	path = src/lib/tinyusb
-	url = https://github.com/hathach/tinyusb.git
+	url = https://github.com/joypad-ai/tinyusb.git
+	branch = dev
 [submodule "src/lib/SNESpad"]
 	path = src/lib/SNESpad
 	url = https://github.com/RobertDaleSmith/SNESpad.git
