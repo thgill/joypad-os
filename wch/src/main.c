@@ -78,10 +78,9 @@ int main(void)
 
   printf("[joypad] Entering main loop\n");
 
-  extern void ch32_attach_poll(void);   // once-per-loop attach detect + disconnect + trace drain
   while (1) {
-    ch32_attach_poll();
-
+    // CH32 USBFS host attach/disconnect is now self-driven from the SOF ISR
+    // (hcd_ch32_usbfs.c); no per-loop host poll is required.
     leds_task();
     players_task();
     storage_task();

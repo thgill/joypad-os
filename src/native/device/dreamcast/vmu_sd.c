@@ -10,12 +10,19 @@
 // the only consequence of a torn read is a slightly early or late flush.
 
 #include "vmu_sd.h"
-#include "ff.h"
 #include "vmu.h"
-#include "core/services/sd/sd.h"
-#include "platform/platform_sd.h"
 #include "pico/stdlib.h"
 #include <stdio.h>
+
+// SD/fatfs are only used when CONFIG_SD is set. Targets that store the VMU in
+// QSPI instead (CONFIG_VMU_QSPI, no CONFIG_SD) compile this file as a no-op and
+// must not pull in ff.h / the SD headers (their include dirs aren't on those
+// targets — see the joypad_dc vs joypad_dc_rp2040zero CMake targets).
+#ifdef CONFIG_SD
+#include "ff.h"
+#include "core/services/sd/sd.h"
+#include "platform/platform_sd.h"
+#endif
 
 // The 128KB VMU image buffer and dirty flag — defined in vmu.c.
 extern uint8_t vmu_ram[];
@@ -133,6 +140,7 @@ bool vmu_sd_mount(void)
 
 void vmu_sd_task(void)
 {
+#ifdef CONFIG_SD
     if (!sd_available) return;
 
     // Check if Core 1 has flagged a write
@@ -150,6 +158,7 @@ void vmu_sd_task(void)
         printf("[vmu-sd] Write failed — will retry\n");
         vmu_dirty_flag = true;  // retry next cycle
     }
+#endif
 }
 
 void vmu_sd_mark_dirty(void)
