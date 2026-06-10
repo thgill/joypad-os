@@ -101,6 +101,7 @@ static bool      initialized = false;
 static bool      connected   = false;
 static uint8_t   last_id     = 0xFF;   // last raw id (incl. 0xF3 config mode)
 static uint8_t   last_real_id = 0xFF;  // last decodable id (ignores 0xF3 flicker)
+static bool      pad_has_analog_btn = false;  // pad reached analog mode -> has ANALOG button (-> A1)
 
 // state-change suppression
 static uint32_t  last_buttons = 0;
@@ -443,6 +444,14 @@ static void psx_process(const uint8_t* buf) {
         psx_a1_hold_until = make_timeout_time_us(200000);   // ~200 ms
     }
 
+    // Remember that this pad is analog-capable: DualShock-family pads (analog /
+    // DS2-pressure / Dual-Analog flight) have a physical ANALOG button, already
+    // mapped to A1 via the toggle above. Latches until disconnect so a momentary
+    // ANALOG-off flicker doesn't drop it. Gates the Select+Start->A1 fallback.
+    if (id == PSX_ID_ANALOG || id == PSX_ID_PRESSURE || id == PSX_ID_FLIGHT) {
+        pad_has_analog_btn = true;
+    }
+
     if (decodable) {
         uint32_t buttons = decode_buttons(buf[3], buf[4]);
         uint8_t rx = 128, ry = 128, lx = 128, ly = 128;
@@ -535,7 +544,11 @@ static void psx_process(const uint8_t* buf) {
         // PS1/PS2 pads have no PS/Guide (Home) button, which some consoles need to
         // wake/init the controller. Map Select+Start (held together) to A1 (Guide),
         // suppressing Select/Start so the host sees a clean PS-button press.
-        if ((buttons & JP_BUTTON_S1) && (buttons & JP_BUTTON_S2)) {
+        // ONLY for pads without an ANALOG button (genuine digital controllers):
+        // it's their only way to reach A1. DualShock-family pads get A1 from the
+        // ANALOG toggle, so leave their Start+Select intact — otherwise output
+        // modes with no A1 (e.g. Xbox OG) lose the ability to press them together.
+        if (!pad_has_analog_btn && (buttons & JP_BUTTON_S1) && (buttons & JP_BUTTON_S2)) {
             buttons |= JP_BUTTON_A1;
             buttons &= ~(JP_BUTTON_S1 | JP_BUTTON_S2);
         }
@@ -572,6 +585,15 @@ static void psx_process(const uint8_t* buf) {
             if (has_pressure) {
                 e.has_pressure = true;
                 for (int i = 0; i < 12; i++) e.pressure[i] = pressure[i];
+                // DS2 (0x79) reports true analog L2/R2 pressure (pressure[4]/[5]).
+                // Surface it on the trigger axes so analog-trigger outputs (XID/Xbox
+                // OG, XInput, GameCube, PS3/PS4, SInput) get real travel instead of
+                // the digital-button fallback that synthesizes a full 0xFF press
+                // (profile.c) when analog L2/R2 is left at 0. Non-DS2 pads (0x41
+                // digital, 0x73 analog) never set has_pressure, so they correctly
+                // stay digital full-press — they carry no trigger pressure to map.
+                e.analog[ANALOG_L2] = pressure[4];
+                e.analog[ANALOG_R2] = pressure[5];
             }
             router_submit_input(&e);
         }
@@ -607,6 +629,7 @@ static void psx_process(const uint8_t* buf) {
         connected = false;
         last_id = 0xFF;
         last_real_id = 0xFF;
+        pad_has_analog_btn = false;   // re-evaluate analog capability for the next pad
         config_attempts = 0;   // reconfigure on the next controller
     }
 }

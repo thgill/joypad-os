@@ -21,6 +21,7 @@
 #include "core/buttons.h"
 #include "core/output_interface.h"
 #include <string.h>
+#include "../tusb_compat.h"  // usbd_edpt_xfer is_isr shim (0.20.0 vs master)
 
 // ============================================================================
 // CONSTANTS
@@ -113,7 +114,7 @@ static uint16_t gc_driver_open(uint8_t rhport, tusb_desc_interface_t const* desc
 
     // Arm OUT endpoint for receiving (critical - use exact buffer size like HOJA)
     if (_gc_itf.ep_out) {
-        usbd_edpt_xfer(rhport, _gc_itf.ep_out, _gc_itf.epout_buf, sizeof(_gc_itf.epout_buf), false);
+        usbd_edpt_xfer(rhport, _gc_itf.ep_out, _gc_itf.epout_buf, sizeof(_gc_itf.epout_buf));
     }
 
     return drv_len;
@@ -213,7 +214,7 @@ static bool gc_driver_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t res
         gc_adapter_mode_handle_output(0, _gc_itf.epout_buf, (uint16_t)xferred_bytes);
 
         // Re-arm OUT endpoint immediately (critical - like HOJA does)
-        usbd_edpt_xfer(rhport, _gc_itf.ep_out, _gc_itf.epout_buf, sizeof(_gc_itf.epout_buf), false);
+        usbd_edpt_xfer(rhport, _gc_itf.ep_out, _gc_itf.epout_buf, sizeof(_gc_itf.epout_buf));
     }
 
     return true;
@@ -312,7 +313,7 @@ static bool gc_adapter_mode_send_report(uint8_t player_index,
     _gc_itf.epin_buf[0] = GC_ADAPTER_REPORT_ID_INPUT;
     memcpy(_gc_itf.epin_buf + 1, gc_adapter_report.port, sizeof(gc_adapter_report.port));
 
-    return usbd_edpt_xfer(rhport, _gc_itf.ep_in, _gc_itf.epin_buf, sizeof(gc_adapter_in_report_t), false);
+    return usbd_edpt_xfer(rhport, _gc_itf.ep_in, _gc_itf.epin_buf, sizeof(gc_adapter_in_report_t));
 }
 
 void gc_adapter_mode_handle_output(uint8_t report_id, const uint8_t* data, uint16_t len)

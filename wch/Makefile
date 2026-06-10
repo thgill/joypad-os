@@ -41,10 +41,19 @@ override SPEED := high
 # Pull in the TinyUSB make build system (sets TOP, EXAMPLE_PATH, family, etc.).
 # tinyusb master renamed examples/build_system/make/make.mk -> hw/bsp/family_support.mk
 # (the cpu/ and toolchain/ subdirs it includes still live under examples/build_system/make).
-include ../src/lib/tinyusb/hw/bsp/family_support.mk
+#
+# NOTE: src/lib/tinyusb is pinned to the joypad-ai fork branch
+# `joypad-0.20.0-ch32` = upstream 0.20.0 release + the CH32 USBFS host commits.
+# 0.20.0 (not master) because the Jan–Jun 2026 master host rework regresses
+# RP2040 hosts that share the chip with Core-1 real-time console protocols
+# (see .dev/dc-dongle-bisect/README.md). All platforms build from this one
+# submodule. TINYUSB_ROOT stays overridable for testing other checkouts.
+TINYUSB_ROOT ?= ../src/lib/tinyusb
+include $(TINYUSB_ROOT)/hw/bsp/family_support.mk
 
-# Joypad shared source tree lives at <repo>/src ; TOP is <repo>/src/lib/tinyusb
-JOYPAD = $(TOP)/../..
+# Joypad shared source tree lives at <repo>/src. Independent of TINYUSB_ROOT
+# so an out-of-tree tinyusb checkout doesn't relocate the joypad sources.
+JOYPAD ?= $(abspath ../src)
 
 # ---------------------------------------------------------------------------
 # Include paths
@@ -203,7 +212,7 @@ SRC_C += \
 # build, not in the (now-pristine) TinyUSB fork.
 CFLAGS := $(filter-out -march=%,$(CFLAGS)) -march=rv32imac
 
-include ../src/lib/tinyusb/hw/bsp/family_rules.mk
+include $(TINYUSB_ROOT)/hw/bsp/family_rules.mk
 
 # ---------------------------------------------------------------------------
 # Convenience targets (wlink = WCH-LinkE flasher, cargo install wlink)

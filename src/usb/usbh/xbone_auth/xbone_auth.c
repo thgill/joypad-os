@@ -39,8 +39,6 @@ typedef struct {
 static uint8_t xbone_dev_addr = 0;
 static uint8_t xbone_instance = 0;
 static bool dongle_ready = false;
-static uint32_t dongle_mount_time_ms = 0;
-#define DONGLE_ANNOUNCE_TIMEOUT_MS  500   // mark ready even without announce after this
 
 static xgip_t incoming_xgip;
 static xgip_t outgoing_xgip;
@@ -118,18 +116,10 @@ void xbone_auth_task(void)
     // Forward auth from console to controller
     xbone_auth_state_t state = xbone_auth_get_state();
 
-    // Fallback: if a controller is mounted (xbone_dev_addr != 0) but it never
-    // sent an ANNOUNCE within the timeout, mark ready anyway so console auth
-    // can proceed. Some dongles (Mayflash Magic-X v1.30) just sit silent in
-    // Xbox One mode and respond only when console actually pokes them.
-    if (!dongle_ready && xbone_dev_addr != 0) {
-        uint32_t now_ms = platform_time_ms();
-        if (now_ms - dongle_mount_time_ms > DONGLE_ANNOUNCE_TIMEOUT_MS) {
-            printf("[xbone_auth] No ANNOUNCE within timeout — marking dongle ready anyway\n");
-            dongle_ready = true;
-        }
-    }
-
+    // dongle_ready is set ONLY after the real announce → descriptor → POWER_ON
+    // handshake completes (see xbone_auth_report_received). We deliberately do
+    // NOT mark the source ready on a timeout: forwarding auth to a source that
+    // hasn't been powered on fails (and a real controller never recovers).
     if (!dongle_ready) {
         // Throttle the warning to once per second so we don't flood the log
         if (state == XBONE_AUTH_SEND_CONSOLE_TO_DONGLE) {
@@ -203,16 +193,10 @@ void xbone_auth_register(uint8_t dev_addr, uint8_t instance)
     xgip_reset(&incoming_xgip);
     xgip_reset(&outgoing_xgip);
 
-    // Wait for a real announce → descriptor → POWER_ON handshake when the
-    // dongle cooperates (matches GP2040-CE behavior). But Mayflash Magic-X
-    // sometimes mounts in Xbox One mode and just sits silent without
-    // announcing — in that case xbone_auth_task will fall back to marking
-    // dongle_ready=true after DONGLE_ANNOUNCE_TIMEOUT_MS so console-side auth
-    // can still proceed.
+    // Ready only after the real announce → descriptor → POWER_ON handshake
+    // completes (matches GP2040-CE). The source drives this at its own pace.
     dongle_ready = false;
-    dongle_mount_time_ms = platform_time_ms();
-    printf("[xbone_auth] Controller mounted, waiting for ANNOUNCE (or %dms timeout)...\n",
-           DONGLE_ANNOUNCE_TIMEOUT_MS);
+    printf("[xbone_auth] Controller mounted, waiting for ANNOUNCE handshake...\n");
 }
 
 void xbone_auth_unregister(uint8_t dev_addr)

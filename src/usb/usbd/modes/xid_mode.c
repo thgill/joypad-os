@@ -48,6 +48,17 @@ static int16_t convert_axis_to_s16(uint8_t value)
     return (int16_t)scaled;
 }
 
+// Same conversion but inverted for Y axes. Our core normalizes Y to HID
+// convention (0=up, 255=down) but Xbox signed sticks are positive=up, so the Y
+// axes must be flipped (mirrors OGX-Mini's Range::invert on joystick_ly/ry).
+static int16_t convert_axis_to_s16_inv(uint8_t value)
+{
+    int32_t scaled = (128 - (int32_t)value) * 256;
+    if (scaled < -32768) scaled = -32768;
+    if (scaled > 32767) scaled = 32767;
+    return (int16_t)scaled;
+}
+
 // ============================================================================
 // MODE INTERFACE IMPLEMENTATION
 // ============================================================================
@@ -78,13 +89,28 @@ static bool xid_mode_send_report(uint8_t player_index,
     // Digital buttons (DPAD, Start, Back, L3, R3)
     xid_report.buttons = convert_xid_digital_buttons(buttons);
 
-    // Analog face buttons (0 = not pressed, 255 = fully pressed)
-    xid_report.a     = (buttons & JP_BUTTON_B1) ? 0xFF : 0x00;
-    xid_report.b     = (buttons & JP_BUTTON_B2) ? 0xFF : 0x00;
-    xid_report.x     = (buttons & JP_BUTTON_B3) ? 0xFF : 0x00;
-    xid_report.y     = (buttons & JP_BUTTON_B4) ? 0xFF : 0x00;
-    xid_report.black = (buttons & JP_BUTTON_L1) ? 0xFF : 0x00;  // L1 -> Black
-    xid_report.white = (buttons & JP_BUTTON_R1) ? 0xFF : 0x00;  // R1 -> White
+    // Analog face + black/white buttons (0 = released, 255 = fully pressed).
+    // The Duke reports all six as 8-bit pressure; the console derives the
+    // digital press from a threshold. Use real per-button pressure when the
+    // source provides it (DualShock 2, OG Xbox via XInput, Wii drums), else
+    // fall back to digital full-scale. pressure[] is DS3 order:
+    // up,right,down,left,L2,R2,L1,R1,triangle,circle,cross,square.
+    // White=L1, Black=R1 matches the codebase convention in xinput.c.
+    if (profile_out->has_pressure) {
+        xid_report.a     = profile_out->pressure[10];  // cross   (B1)
+        xid_report.b     = profile_out->pressure[9];   // circle  (B2)
+        xid_report.x     = profile_out->pressure[11];  // square  (B3)
+        xid_report.y     = profile_out->pressure[8];   // triangle(B4)
+        xid_report.white = profile_out->pressure[6];   // L1
+        xid_report.black = profile_out->pressure[7];   // R1
+    } else {
+        xid_report.a     = (buttons & JP_BUTTON_B1) ? 0xFF : 0x00;
+        xid_report.b     = (buttons & JP_BUTTON_B2) ? 0xFF : 0x00;
+        xid_report.x     = (buttons & JP_BUTTON_B3) ? 0xFF : 0x00;
+        xid_report.y     = (buttons & JP_BUTTON_B4) ? 0xFF : 0x00;
+        xid_report.white = (buttons & JP_BUTTON_L1) ? 0xFF : 0x00;  // L1 -> White
+        xid_report.black = (buttons & JP_BUTTON_R1) ? 0xFF : 0x00;  // R1 -> Black
+    }
 
     // Analog triggers (0-255)
     // Use profile analog values, fall back to digital if analog is 0 but button pressed
@@ -95,9 +121,9 @@ static bool xid_mode_send_report(uint8_t player_index,
 
     // Analog sticks (signed 16-bit, -32768 to +32767)
     xid_report.stick_lx = convert_axis_to_s16(profile_out->left_x);
-    xid_report.stick_ly = convert_axis_to_s16(profile_out->left_y);
+    xid_report.stick_ly = convert_axis_to_s16_inv(profile_out->left_y);
     xid_report.stick_rx = convert_axis_to_s16(profile_out->right_x);
-    xid_report.stick_ry = convert_axis_to_s16(profile_out->right_y);
+    xid_report.stick_ry = convert_axis_to_s16_inv(profile_out->right_y);
 
     return tud_xid_send_report(&xid_report);
 }

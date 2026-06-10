@@ -76,6 +76,7 @@ CONSOLE_ami_xiao := joypad_ami_xiao
 CONSOLE_ami_retrofrog := joypad_ami_retrofrog
 CONSOLE_ami_beetle_rp2350 := joypad_ami_beetle_rp2350
 CONSOLE_usb_pico := joypad_usb_pico
+CONSOLE_usb_ogxm_pico := joypad_usb_ogxm_pico
 CONSOLE_usb_pico_w := joypad_usb_pico_w
 CONSOLE_usb_pico2_w := joypad_usb_pico2_w
 CONSOLE_neogeo := joypad_neogeo
@@ -169,6 +170,7 @@ APP_usb23do_rp2040zero := rp2040zero 3do usb23do_rp2040zero USB/BT 3DO
 APP_snes23do_rp2040zero := rp2040zero snes3do snes23do_rp2040zero SNES 3DO
 APP_usb2uart_kb2040 := kb2040 uart usb2uart_kb2040 USB/BT UART
 APP_usb2usb_pico := pico usb_pico usb2usb_pico USB/BT USB
+APP_usb2usb_ogxm_pico := pico usb_ogxm_pico usb2usb_ogxm_pico USB/BT USB
 APP_usb2usb_pico_w := pico_w usb_pico_w usb2usb_pico_w USB/BT USB
 APP_usb2usb_pico2_w := pico2_w usb_pico2_w usb2usb_pico2_w USB/BT USB
 APP_usb2usb_feather_rp2040 := feather usb_feather_rp2040 usb2usb_feather_rp2040 USB/BT USB
@@ -592,6 +594,10 @@ usb2uart_kb2040:
 .PHONY: usb2usb_pico
 usb2usb_pico:
 	$(call build_app,usb2usb_pico)
+
+.PHONY: usb2usb_ogxm_pico
+usb2usb_ogxm_pico:
+	$(call build_app,usb2usb_ogxm_pico)
 
 .PHONY: usb2usb_pico_w
 usb2usb_pico_w:

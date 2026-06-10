@@ -2237,5 +2237,17 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage,
     if (output_mode == USB_OUTPUT_MODE_XINPUT) {
         return tud_xinput_vendor_control_xfer_cb(rhport, stage, request);
     }
+#if CFG_TUD_XID
+    if (output_mode == USB_OUTPUT_MODE_XBOX_ORIGINAL) {
+        // TinyUSB short-circuits ALL vendor-type control requests to this
+        // callback (device/usbd.c process_control_request), bypassing the class
+        // driver. The XID protocol's GET_DESC (0xC1/0x06/wValue=0x4200) and
+        // GET_CAP (0xC1/0x01) requests are vendor-type, so they never reach the
+        // XID class driver on their own. Forward them explicitly or the real
+        // Xbox can't read the XID descriptor during enumeration and rejects the
+        // controller. Mirrors OGX-Mini's tud_callbacks.cpp dispatch.
+        return tud_xid_class_driver()->control_xfer_cb(rhport, stage, request);
+    }
+#endif
     return true;  // Accept by default for other modes
 }

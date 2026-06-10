@@ -36,18 +36,20 @@ The active-pull-up PIO needs `CLK` and `ATT` on **consecutive GPIOs** (it's a 2-
 
 ### QT Py RP2040 (primary target)
 
+> ⚠️ The QT Py RP2040 numbers its analog pads in **descending** GPIO order — **A0 is GP29, A3 is GP26** (the reverse of the KB2040). Wire by the pad label in the table below, not by assuming A0 is the lowest GPIO.
+
 | QT Py pad | GPIO | PSX Pin | Signal |
 |-----------|------|---------|--------|
-| A3 | GP29 | 1 | DAT |
-| A2 | GP28 | 2 | CMD |
-| A1 | GP27 | 6 | ATT |
-| A0 | GP26 | 7 | CLK |
+| A0 | GP29 | 1 | DAT |
+| A1 | GP28 | 2 | CMD |
+| A2 | GP27 | 6 | ATT |
+| A3 | GP26 | 7 | CLK |
 | 3V | — | 5 | +3.3V |
 | GND | — | 4 | GND |
 
 ### KB2040
 
-Same GPIOs (26/27/28/29) — both Adafruit boards break out the A0–A3 pads to GP26–GP29.
+Same GPIOs as the QT Py (CLK=GP26, ATT=GP27, CMD=GP28, DAT=GP29), but the KB2040 numbers its A0–A3 pads in **ascending** GPIO order (A0 is GP26), so the pad labels are the reverse of the QT Py.
 
 | KB2040 pad | GPIO | PSX Pin | Signal |
 |------------|------|---------|--------|

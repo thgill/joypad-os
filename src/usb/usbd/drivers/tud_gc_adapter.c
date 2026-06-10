@@ -13,6 +13,7 @@
 
 #include "tud_gc_adapter.h"
 #include <string.h>
+#include "../tusb_compat.h"  // usbd_edpt_xfer is_isr shim (0.20.0 vs master)
 
 // ============================================================================
 // INTERNAL STATE

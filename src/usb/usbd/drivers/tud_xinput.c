@@ -18,6 +18,7 @@
 #include <string.h>
 #include "lib/libxsm3/xsm3.h"
 #include "platform/platform.h"
+#include "../tusb_compat.h"  // usbd_edpt_xfer is_isr shim (0.20.0 vs master)
 
 // ============================================================================
 // INTERNAL STATE
@@ -132,7 +133,7 @@ static uint16_t xinput_open(uint8_t rhport, tusb_desc_interface_t const* itf_des
 
         // Start receiving on OUT endpoint
         if (_xinput_itf.ep_out != 0xFF) {
-            usbd_edpt_xfer(rhport, _xinput_itf.ep_out, _xinput_itf.ep_out_buf, sizeof(_xinput_itf.ep_out_buf), false);
+            usbd_edpt_xfer(rhport, _xinput_itf.ep_out, _xinput_itf.ep_out_buf, sizeof(_xinput_itf.ep_out_buf));
         }
 
         TU_LOG1("[XINPUT] Opened gamepad itf %u, EP IN=0x%02X, EP OUT=0x%02X\r\n",
@@ -312,7 +313,7 @@ static bool xinput_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result
         }
 
         // Queue next receive
-        usbd_edpt_xfer(rhport, _xinput_itf.ep_out, _xinput_itf.ep_out_buf, sizeof(_xinput_itf.ep_out_buf), false);
+        usbd_edpt_xfer(rhport, _xinput_itf.ep_out, _xinput_itf.ep_out_buf, sizeof(_xinput_itf.ep_out_buf));
     }
 
     return true;
@@ -369,7 +370,7 @@ bool tud_xinput_send_report(const xinput_in_report_t* report)
         tud_remote_wakeup();
     }
 
-    return usbd_edpt_xfer(0, _xinput_itf.ep_in, _xinput_itf.ep_in_buf, sizeof(xinput_in_report_t), false);
+    return usbd_edpt_xfer(0, _xinput_itf.ep_in, _xinput_itf.ep_in_buf, sizeof(xinput_in_report_t));
 }
 
 bool tud_xinput_get_output(xinput_out_report_t* output)

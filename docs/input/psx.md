@@ -33,4 +33,4 @@ The host sends the standard DualShock unlock sequence (enter config -> set analo
 
 ## Wiring
 
-Per-board pin assignments are defined in `src/CMakeLists.txt` under the `psx2usb` target. CLK and ATT must remain consecutive GPIOs (the PIO side-set uses both); CMD and DAT can be on any free pins. The QT Py and KB2040 variants both use A0=CLK, A1=ATT, A2=CMD, A3=DAT (GP26-29).
+Per-board pin assignments are defined in `src/CMakeLists.txt` under the `psx2usb` target. CLK and ATT must remain consecutive GPIOs (the PIO side-set uses both); CMD and DAT can be on any free pins. Both Adafruit variants use the same GPIOs — CLK=GP26, ATT=GP27, CMD=GP28, DAT=GP29 — but they number their A0–A3 pads in **opposite** directions: the KB2040 is ascending (A0=GP26=CLK … A3=GP29=DAT), while the QT Py RP2040 is descending (A0=GP29=DAT … A3=GP26=CLK). Wire by the per-board pad table in the [build guide](../hardware/builds/psx2usb-qtpy.md), not by pad number alone.
