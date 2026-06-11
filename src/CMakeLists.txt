@@ -657,6 +657,9 @@ pico_generate_pio_header(joypad_dc ${CMAKE_CURRENT_LIST_DIR}/native/device/dream
 add_executable(joypad_dc_rp2040zero)
 target_compile_definitions(joypad_dc_rp2040zero PRIVATE
     CONFIG_DC=1 CONFIG_USB_HOST=1 CONFIG_DC_CORE1_TX=1 CONFIG_VMU=1 CONFIG_VMU_QSPI=1 CONFIG_NO_FLASH_LOCKOUT=1
+    PICO_STACK_SIZE=2048
+    PICO_CORE1_STACK_SIZE=4096
+    PICO_HEAP_SIZE=512
     MAPLE_PIN1=14
     MAPLE_PIN5=15
     WS2812_PIN=16
@@ -668,6 +671,11 @@ target_compile_definitions(joypad_dc_rp2040zero PRIVATE
     SD_MOSI_PIN=11
     SD_MISO_PIN=12
     SD_CS_PIN=13
+    # OLED display on I2C1: SDA=GP26, SCL=GP27
+    OLED_I2C_INST=1
+    OLED_I2C_SDA_PIN=26
+    OLED_I2C_SCL_PIN=27
+    OLED_I2C_ADDR=0x3C
 )
 target_sources(joypad_dc_rp2040zero PUBLIC ${COMMON_SOURCES} ${SD_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/dreamcast_device.c
@@ -676,13 +684,16 @@ target_sources(joypad_dc_rp2040zero PUBLIC ${COMMON_SOURCES} ${SD_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/vmu_sd.c
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/vmu_storage.c
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2dc/app.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast/dreamcast_display.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/display.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/services/display/display_i2c.c
 )
 target_include_directories(joypad_dc_rp2040zero PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2dc
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/dreamcast
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/fatfs
 )
-target_link_libraries(joypad_dc_rp2040zero PRIVATE ${COMMON_LIBRARIES} hardware_dma hardware_spi pico_multicore)
+target_link_libraries(joypad_dc_rp2040zero PRIVATE ${COMMON_LIBRARIES} hardware_dma hardware_spi hardware_i2c pico_multicore)
 joypad_target_common(joypad_dc_rp2040zero)
 joypad_add_btstack(joypad_dc_rp2040zero)
 pico_generate_pio_header(joypad_dc_rp2040zero ${CMAKE_CURRENT_LIST_DIR}/native/device/dreamcast/maple.pio)

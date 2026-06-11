@@ -7,6 +7,7 @@
 // PIO allocation: Maple TX on PIO0 (SM0), Maple RX on PIO1 (SM0-2)
 
 #include "app.h"
+#include "dreamcast_display.h"
 #include "core/router/router.h"
 #include "core/services/players/manager.h"
 #include "core/services/players/feedback.h"

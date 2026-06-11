@@ -64,6 +64,7 @@ const void* vmu_get_ack_packet(uint32_t *size_words);
 // Block read/write handlers — called from ConsumePacket on Core 1
 const void* vmu_handle_block_read(const uint32_t *packet_data, uint32_t *size_words);
 void        vmu_handle_block_write(const uint32_t *packet_data, uint32_t num_words);
+void        vmu_handle_lcd_write(const uint8_t* data, uint32_t len);
 void        vmu_handle_write_complete(void);
 
 // Address and status

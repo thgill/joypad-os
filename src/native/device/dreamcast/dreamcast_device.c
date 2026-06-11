@@ -14,6 +14,7 @@
 // - PIO1 SM3: available for other protocols (e.g., N64 joybus at offset 10)
 
 #include "dreamcast_device.h"
+#include "dreamcast_display.h"
 #include "core/services/leds/leds.h"
 #include "maple_state_machine.h"
 #ifdef CONFIG_VMU
@@ -29,6 +30,7 @@
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
 #include "hardware/gpio.h"
+#include "hardware/i2c.h"
 #include "hardware/pio.h"
 #include "hardware/timer.h"
 #include "pico/multicore.h"
@@ -709,7 +711,7 @@ static bool __not_in_flash_func(ConsumePacket)(uint32_t Size)
         case CMD_BLOCK_WRITE:
             if (Header->NumWords >= 2 && __builtin_bswap32(PacketData[0]) == FUNC_MEMORY_CARD) {
                 vmu_handle_block_write(PacketData, Header->NumWords);
-                NextPacketSend = SEND_VMU_ACK;  // Use dedicated VMU ACK (origin=0x01)
+                NextPacketSend = SEND_VMU_ACK;
                 return true;
             }
             break;
@@ -1338,6 +1340,7 @@ void dreamcast_task(void)
         printf("[DC] Maple TX/RX started\n");
         last_debug_time = time_us_32();
         vmu_enable_time = time_us_32() + 500000;  // Enable VMU 500ms after start — allows SD init to complete
+        dc_display_start_boot();
     }
 
     // Deferred VMU+rumble advertisement — after start
@@ -1351,6 +1354,7 @@ void dreamcast_task(void)
         dreamcast_enable_vmu();
         vmu_enabled = true;
         printf("[DC] VMU+rumble advertisement enabled\n");
+        dc_display_set_state(DC_DISPLAY_IDLE);
     }
 #else
     (void)vmu_enabled; (void)vmu_enable_time;
@@ -1408,6 +1412,9 @@ void dreamcast_task(void)
         maple_tx_pause = false;
     }
 #endif
+
+    // OLED display task
+    if (dc_display_is_present()) { dc_display_task(); }
 
     // Periodic debug output (every 5 seconds)
     uint32_t now = time_us_32();
@@ -1627,6 +1634,30 @@ void dreamcast_task(void)
     // AFTER packet processing: Update router state and handle rumble
     // These are lower priority than responding to DC commands
     dreamcast_update_output();
+
+    // Initialize OLED display once VMU is enabled — safe window after USB host
+    // enumeration completes. maple_tx_pause prevents DMA contention during I2C init.
+#ifdef CONFIG_VMU
+    {
+        // Phase 1: init I2C at 3s after boot
+        // Phase 2: first draw 1s after init (avoids immediate flush during DC polling)
+        static uint8_t display_phase = 0;  // 0=waiting, 1=init done, 2=drawn
+        static uint32_t display_timer_ms = 0;
+        extern int playersCount;
+        if (display_phase == 0 && vmu_enabled && playersCount > 0 && display_timer_ms == 0)
+            display_timer_ms = vmu_now_ms + 1000;
+        if (display_phase == 0 && display_timer_ms != 0 && vmu_now_ms >= display_timer_ms) {
+            dc_display_init();
+            display_phase = 1;
+            display_timer_ms = vmu_now_ms + 1000;
+        }
+        if (display_phase == 1 && vmu_now_ms >= display_timer_ms) {
+            if (dc_display_is_present())
+                dc_display_set_state(DC_DISPLAY_IDLE);
+            display_phase = 2;
+        }
+    }
+#endif
 
 #ifdef CONFIG_VMU
     // VMU write-back task — flush SD card after 1 second idle

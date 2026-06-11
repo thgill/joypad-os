@@ -2,6 +2,7 @@
 // 128KB VMU image in RAM, persisted to SD card (DC_1.VMU) via vmu_sd.c.
 
 #include "vmu.h"
+#include "dreamcast_display.h"
 #include "vmu_sd.h"
 #include "vmu_storage.h"
 #include "vmu_default_icondata.h"
@@ -255,6 +256,11 @@ void __not_in_flash_func(vmu_handle_block_write)(const uint32_t *pkt, uint32_t n
     memcpy(write_buf + phase_off, &pkt[2], data_bytes);
     write_phases |= (1u << phase);
     vmu_status = VMU_STATUS_SAVING;
+}
+
+void __not_in_flash_func(vmu_handle_lcd_write)(const uint8_t* data, uint32_t len) {
+    // LCD bitmap forwarding disabled — interferes with VMU write sequence
+    (void)data; (void)len;
 }
 
 void __not_in_flash_func(vmu_handle_write_complete)(void) {

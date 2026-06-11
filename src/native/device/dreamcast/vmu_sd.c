@@ -10,6 +10,7 @@
 // the only consequence of a torn read is a slightly early or late flush.
 
 #include "vmu_sd.h"
+#include "dreamcast_display.h"
 #include "vmu.h"
 #include "pico/stdlib.h"
 #include <stdio.h>
@@ -134,6 +135,14 @@ bool vmu_sd_mount(void)
     // Mark dirty so first vmu_sd_task() call syncs QSPI image to SD
     sd_available = true;
     vmu_dirty_flag = true;
+    // Update display SD label
+    char sd_label[16];
+    uint64_t mb = sd_free_bytes() / (1024ULL * 1024ULL);
+    if (mb >= 1024)
+        snprintf(sd_label, sizeof(sd_label), "SD:%uGB", (unsigned)(mb / 1024));
+    else
+        snprintf(sd_label, sizeof(sd_label), "SD:%uMB", (unsigned)mb);
+    dc_display_set_sd_label(sd_label);
     return true;
 #endif
 }
