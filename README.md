@@ -41,9 +41,23 @@ Use any modern USB gamepad or mouse with your Commodore Amiga, Commodore 64, or 
 
 ---
 
-### USB4NEO — USB to Neo Geo *(coming soon)*
+### USB4NEO — USB HID to Neo Geo and Supergun
 
-*Documentation coming soon.*
+Use any modern USB HID gamepad or joystick with your Neo Geo AES, MVS, CD consoles and most Supergun setups that have the standard Neo Geo DB15 controller connector
+
+**Supported input:**
+- USB gamepads — Xbox, PlayStation, Nintendo Switch, 8BitDo, and most generic HID controllers
+- USB mice — any standard USB mouse or trackball
+
+**Output protocols:**
+- Neo Geo 4 button controller
+- Supergun 6 button controller
+- Neo Geo Paddle support for supported games via Mouse or Trackball
+- Neo Geo Mouse as Joystick for games like Puzzle Bobble
+
+**[USB4NEO User Guide →](docs/usb4neo/user_guide.md)**
+
+**[Firmware Releases →](https://github.com/thgill/joypad-os/releases)**
 
 ---
 
