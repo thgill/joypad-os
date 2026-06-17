@@ -36,6 +36,7 @@ Use any modern USB gamepad or mouse with your Commodore Amiga, Commodore 64, or 
 
 
 **[USB4AMI User Guide →](docs/usb4ami/user_guide.md)**
+
 **[Firmware Releases →](https://github.com/thgill/joypad-os/releases)**
 
 ---
