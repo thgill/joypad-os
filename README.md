@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  Use modern USB controllers and mice on classic computers — no drivers, no configuration, no compromises.
+  Use modern USB HID controllers and mice on classic computers — no drivers, no configuration, no compromises.
 </p>
 
 <p align="center">
@@ -20,19 +20,20 @@
 
 ## Products
 
-### USB4AMI — USB to Amiga / C64 / Atari ST
+### USB4AMI — USB HID to Amiga / C64 / Atari ST
 
 Use any modern USB gamepad or mouse with your Commodore Amiga, Commodore 64, or Atari ST. Plugs into the DE9 joystick port with no modification to your computer required.
 
 **Supported input:**
 - USB gamepads — Xbox, PlayStation, Nintendo Switch, 8BitDo, and most generic HID controllers
-- USB mice — any standard USB mouse
+- USB mice — any standard USB mouse or trackball
 
 **Output protocols:**
 - Amiga joystick and quadrature mouse
+- CD32 controller (auto-detected on Amiga)
 - Commodore 64 joystick and C1351 proportional mouse
 - Atari ST joystick and quadrature mouse
-- CD32 controller (auto-detected on Amiga)
+
 
 **[USB4AMI User Guide →](docs/usb4ami/user_guide.md)**
 **[Firmware Releases →](https://github.com/thgill/joypad-os/releases)**
@@ -48,9 +49,10 @@ Use any modern USB gamepad or mouse with your Commodore Amiga, Commodore 64, or 
 ## Flashing Firmware
 
 1. Download the latest `.uf2` for your adapter from [Releases](https://github.com/thgill/joypad-os/releases)
-2. Hold the BOOT button and connect USB-C to your computer
-3. Drag the `.uf2` file onto the `RPI-RP2` drive that appears
+2. Hold the button and connect the USB-A cable to your computer
+3. Drag the `.uf2` file onto the `RP2350` drive that appears
 4. Done — the drive ejects and your adapter is running the new firmware
+5. Note: Always disconnect the USB adapter from your console/vintage computer prior to updating!!
 
 ---
 
@@ -94,4 +96,4 @@ Retro Frog firmware is built on [Joypad OS](https://github.com/joypad-ai/joypad-
 
 Both are licensed under the **[Apache License 2.0](LICENSE)**.
 
-Retro Frog product additions and modifications are copyright © 2025 Retro Frog.
+Retro Frog product additions and modifications are copyright © 2026 Todd Gill/Retro Frog.
