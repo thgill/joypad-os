@@ -35,7 +35,7 @@ Use any modern USB gamepad or mouse with your Commodore Amiga, Commodore 64, or 
 - Atari ST joystick and quadrature mouse
 
 
-**[USB4AMI User Guide →](docs/usb4ami/user_guide.md)**
+**[USB4AMI User Guide →](docs/retrofrog/usb4ami/user_guide.md)**
 
 **[Firmware Releases →](https://github.com/thgill/joypad-os/releases)**
 
@@ -55,7 +55,7 @@ Use any modern USB HID gamepad or joystick with your Neo Geo AES, MVS, CD consol
 - Neo Geo Paddle support for supported games via Mouse or Trackball
 - Neo Geo Mouse as Joystick for games like Puzzle Bobble
 
-**[USB4NEO User Guide →](docs/usb4neo/user_guide.md)**
+**[USB4NEO User Guide →](docs/retrofrog/usb4neo/user_guide.md)**
 
 **[Firmware Releases →](https://github.com/thgill/joypad-os/releases)**
 
