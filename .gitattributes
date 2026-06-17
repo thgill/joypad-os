@@ -1,0 +1,4 @@
+echo "README.md merge=ours" > .gitattributes
+git add .gitattributes
+git commit -m "chore: keep custom README on upstream merges"
+git push myfork feature/retrofrog
