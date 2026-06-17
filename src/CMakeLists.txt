@@ -2896,7 +2896,7 @@ target_compile_definitions(joypad_ami_beetle_rp2350 PRIVATE
     AMIGA_PIN_CLK=8
     AMIGA_PIN_DATA=9
     AMIGA_PIN_JOYMODE=16
-    PICO_DEFAULT_SYS_CLK_HZ=48000000
+    
 )
 target_sources(joypad_ami_beetle_rp2350 PUBLIC ${COMMON_SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/native/device/amiga/amiga_device.c
