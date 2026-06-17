@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>Firmware for Retro Frog controller adapters</strong>
+  <strong>Firmware for Retro Frog USB controller adapters</strong>
 </p>
 
 <p align="center">
