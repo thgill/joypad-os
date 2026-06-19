@@ -2913,6 +2913,43 @@ pico_enable_stdio_uart(joypad_ami_beetle_rp2350 0)
 pico_enable_stdio_usb(joypad_ami_beetle_rp2350 0)
 
 # ============================================================================
+# USB2JAG (USB -> Atari Jaguar HD15, RP2040-Zero)
+#
+# HD15 strobe inputs:  J0=GP2, J1=GP3, J2=GP4, J3=GP5
+# HD15 data outputs:   B0=GP6, B1=GP7, J8=GP8, J9=GP9, J10=GP10, J11=GP11
+# NeoPixel: GP16
+# ============================================================================
+
+add_executable(joypad_jag_rp2040zero)
+target_compile_definitions(joypad_jag_rp2040zero PRIVATE
+    CONFIG_JAGUAR=1
+    CONFIG_USB_HOST=1
+    WS2812_PIN=16
+    USE_BOOTSEL_BUTTON=1
+    JAG_PIN_J0=2
+    JAG_PIN_J1=3
+    JAG_PIN_J2=4
+    JAG_PIN_J3=5
+    JAG_PIN_B0=6
+    JAG_PIN_B1=7
+    JAG_PIN_J8=8
+    JAG_PIN_J9=9
+    JAG_PIN_J10=10
+    JAG_PIN_J11=11
+)
+target_sources(joypad_jag_rp2040zero PUBLIC ${COMMON_SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/jaguar/jaguar_device.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2jag/app.c
+)
+target_include_directories(joypad_jag_rp2040zero PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/usb2jag
+    ${CMAKE_CURRENT_SOURCE_DIR}/native/device/jaguar
+)
+target_link_libraries(joypad_jag_rp2040zero PRIVATE ${COMMON_LIBRARIES} pico_multicore)
+joypad_target_common(joypad_jag_rp2040zero)
+joypad_add_btstack(joypad_jag_rp2040zero)
+
+# ============================================================================
 # DEBUG BUILD CONFIGURATION
 # ============================================================================
 
