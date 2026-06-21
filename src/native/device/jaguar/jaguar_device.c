@@ -104,6 +104,19 @@ volatile uint32_t jag_row_gpio[4] = {
     GPIO_MASK_ALL_OUT,  // row 3: all released (C3 HIGH = STDPAD)
 };
 
+// 16-entry strobe lookup table for Core 1 hot path.
+// Indexed by 4-bit strobe value: bits = (J3<<3|J2<<2|J1<<1|J0<<0), active LOW.
+// So index 0b1110 (0xE) = J0 active, 0b1101 (0xD) = J1, etc.
+// Entry = GPIO SET mask to drive when that strobe combination is asserted.
+// Rebuilt by Core 0 whenever row data changes via build_strobe_table().
+// Index 0b1111 (all HIGH = no strobe) = release all outputs.
+// Multi-strobe entries use lowest active row (defensive only, shouldn't occur).
+volatile uint32_t jag_strobe_table[16];
+
+// Shift offset to extract strobe bits from gpio_in into table index.
+// Strobe pins are J0=GP2..J3=GP5, so shift right by JAG_PIN_J0.
+#define STROBE_SHIFT  JAG_PIN_J0
+
 // Exposed shared state (used by header declarations)
 volatile uint8_t          jag_row_data[4] = { 0xFF, 0xFF, 0xFF, 0xFF };
 volatile uint8_t          jag_phase_idx   = 0;  // 0..2 index into phase_gpio_set
@@ -166,7 +179,58 @@ static void update_led(void) {
 }
 
 // ============================================================================
-// ROW GPIO MASK BUILDERS (Core 0)
+// STROBE LOOKUP TABLE BUILDER (Core 0)
+// Rebuilds jag_strobe_table[16] from current jag_row_gpio values.
+// Called after every row update so Core 1 always has current data.
+//
+// Table index = 4-bit strobe value from gpio_in bits [J3:J2:J1:J0].
+// Strobe pins are active LOW: a 0 bit means that row is asserted.
+// Index 0xF (1111) = no strobe = release all outputs.
+// ============================================================================
+
+static void build_strobe_table(void) {
+    uint32_t release = (jag_input_mode == JAG_MODE_SPINNER)
+        ? GPIO_MASK_ALL_OUT & ~(GPIO_MASK_J10 | GPIO_MASK_J11)
+        : GPIO_MASK_ALL_OUT;
+
+    for (uint8_t i = 0; i < 16; i++) {
+        // Invert bits: active LOW strobe pins mean active bit = 0 in gpio_in
+        // Bit 0 = J0, bit 1 = J1, bit 2 = J2, bit 3 = J3
+        // Active when bit is 0 in gpio_in, so active = ~i & 0xF
+        uint8_t active = (~i) & 0xF;
+
+        if (active == 0) {
+            // No strobe — release all
+            jag_strobe_table[i] = release;
+        } else if (active & 0x1) {
+            // J0 active (Row 0) — lowest priority wins for multi-strobe
+            uint32_t mask = jag_row_gpio[0];
+            if (jag_input_mode == JAG_MODE_SPINNER)
+                mask |= (GPIO_MASK_J10 | GPIO_MASK_J11);
+            jag_strobe_table[i] = mask;
+        } else if (active & 0x2) {
+            // J1 active (Row 1)
+            uint32_t mask = jag_row_gpio[1];
+            if (jag_input_mode == JAG_MODE_SPINNER)
+                mask |= (GPIO_MASK_J10 | GPIO_MASK_J11);
+            jag_strobe_table[i] = mask;
+        } else if (active & 0x4) {
+            // J2 active (Row 2)
+            uint32_t mask = jag_row_gpio[2];
+            if (jag_input_mode == JAG_MODE_SPINNER)
+                mask |= (GPIO_MASK_J10 | GPIO_MASK_J11);
+            jag_strobe_table[i] = mask;
+        } else {
+            // J3 active (Row 3)
+            uint32_t mask = jag_row_gpio[3];
+            if (jag_input_mode == JAG_MODE_SPINNER)
+                mask |= (GPIO_MASK_J10 | GPIO_MASK_J11);
+            jag_strobe_table[i] = mask;
+        }
+    }
+}
+
+
 // Converts button state into per-row GPIO SET masks.
 // A pin in the SET mask = HIGH (released). Absent = LOW (asserted).
 // ============================================================================
@@ -229,6 +293,8 @@ static void build_gamepad_rows(uint32_t buttons) {
         (buttons & JAG_NUMPAD_9)  != 0,    // 9 on J9
         (buttons & JAG_NUMPAD_6)  != 0,    // 6 on J10
         false);
+
+    build_strobe_table(); __dmb();
 }
 
 static void build_spinner_rows(uint32_t buttons) {
@@ -252,6 +318,8 @@ static void build_spinner_rows(uint32_t buttons) {
 
     // Row 3: C3 LOW (B0 asserted) — ROTARY type
     jag_row_gpio[3] = GPIO_MASK_ALL_OUT & ~GPIO_MASK_B0;
+
+    build_strobe_table(); __dmb();
 }
 
 // ============================================================================
@@ -411,20 +479,17 @@ static void __not_in_flash_func(jaguar_tap_callback)(
 // Maps to conseq states: seq[0]=state0, seq[1]=state1, seq[2]=state3
 
 void __not_in_flash_func(jaguar_core1_task)(void) {
-    uint32_t prev_in    = sio_hw->gpio_in;
     uint32_t last_step  = timer_hw->timerawl;
     uint8_t  seq_idx    = 0;
 
     while (true) {
-        uint32_t now = timer_hw->timerawl;
-
-        // ---- Spinner phase output ----
+        // ---- Spinner phase output (spinner mode only) ----
         if (jag_input_mode == JAG_MODE_SPINNER) {
+            uint32_t now = timer_hw->timerawl;
             int16_t pending = jag_phase_pending;
             uint32_t interval = jag_step_interval_us;
 
             if (pending != 0 && interval > 0 && (now - last_step) >= interval) {
-                // Advance one step in the 3-state safe sequence
                 if (pending > 0) {
                     seq_idx = (seq_idx + PHASE_SEQ_LEN - 1) % PHASE_SEQ_LEN;
                     jag_phase_pending = pending - 1;
@@ -436,53 +501,23 @@ void __not_in_flash_func(jaguar_core1_task)(void) {
                 last_step = now;
             }
 
-            // Always drive J10/J11 to current phase state
             uint32_t phase_set = phase_gpio_set[seq_idx];
             uint32_t phase_clr = (GPIO_MASK_J10 | GPIO_MASK_J11) & ~phase_set;
             if (phase_set) sio_hw->gpio_set = phase_set;
             if (phase_clr) sio_hw->gpio_clr = phase_clr;
         }
 
-        // ---- Button/direction output on strobe edges ----
-        uint32_t cur_in = sio_hw->gpio_in;
-        uint32_t changed = cur_in ^ prev_in;
-
-        if (changed & GPIO_MASK_STROBES) {
-            prev_in = cur_in;
-            uint32_t strobes = ~cur_in & GPIO_MASK_STROBES;
-
-            if (strobes == 0) {
-                // No strobe — release all non-phase outputs
-                if (jag_input_mode == JAG_MODE_SPINNER) {
-                    sio_hw->gpio_set = GPIO_MASK_ALL_OUT & ~(GPIO_MASK_J10 | GPIO_MASK_J11);
-                } else {
-                    sio_hw->gpio_set = GPIO_MASK_ALL_OUT;
-                }
-            } else {
-                uint32_t row_mask;
-                if      (strobes & GPIO_MASK_J0) row_mask = jag_row_gpio[0];
-                else if (strobes & GPIO_MASK_J1) row_mask = jag_row_gpio[1];
-                else if (strobes & GPIO_MASK_J2) row_mask = jag_row_gpio[2];
-                else                              row_mask = jag_row_gpio[3];
-
-                // In spinner mode: don't let strobe logic override J10/J11
-                // (phase driver above owns those pins)
-                if (jag_input_mode == JAG_MODE_SPINNER) {
-                    row_mask |= (GPIO_MASK_J10 | GPIO_MASK_J11);
-                }
-
-                uint32_t out_set = row_mask;
-                uint32_t out_clr = GPIO_MASK_ALL_OUT & ~row_mask;
-                if (jag_input_mode == JAG_MODE_SPINNER) {
-                    out_clr &= ~(GPIO_MASK_J10 | GPIO_MASK_J11);
-                }
-
-                if (out_set) sio_hw->gpio_set = out_set;
-                if (out_clr) sio_hw->gpio_clr = out_clr;
-            }
-        } else {
-            prev_in = cur_in;
-        }
+        // ---- Button/direction output — single lookup table access ----
+        // Extract 4 strobe bits, index into precomputed table.
+        // One read, one table lookup, two writes — minimum possible overhead.
+        uint32_t gpio_in = sio_hw->gpio_in;
+        uint8_t  idx     = (gpio_in >> STROBE_SHIFT) & 0xF;
+        uint32_t set     = jag_strobe_table[idx];
+        uint32_t clr     = GPIO_MASK_ALL_OUT & ~set;
+        if (jag_input_mode == JAG_MODE_SPINNER)
+            clr &= ~(GPIO_MASK_J10 | GPIO_MASK_J11);
+        sio_hw->gpio_set = set;
+        if (clr) sio_hw->gpio_clr = clr;
     }
 }
 
@@ -649,6 +684,7 @@ void jaguar_device_init(void) {
     jag_row_gpio[1] = GPIO_MASK_ALL_OUT;
     jag_row_gpio[2] = GPIO_MASK_ALL_OUT;
     jag_row_gpio[3] = GPIO_MASK_ALL_OUT;
+    build_strobe_table(); __dmb();
 
     load_settings();
 

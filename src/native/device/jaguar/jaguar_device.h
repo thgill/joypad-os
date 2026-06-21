@@ -108,6 +108,11 @@ typedef enum {
 // Core 0 updates these from the tap callback; Core 1 applies them atomically.
 extern volatile uint32_t jag_row_gpio[4];
 
+// 16-entry strobe lookup table for Core 1 hot path.
+// Indexed by 4 strobe bits from gpio_in >> STROBE_SHIFT.
+// Rebuilt by Core 0 via build_strobe_table() on every button state change.
+extern volatile uint32_t jag_strobe_table[16];
+
 // Legacy byte array kept for compatibility — not used by Core 1 hot path
 extern volatile uint8_t jag_row_data[4];
 
