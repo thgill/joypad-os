@@ -67,25 +67,25 @@
 // Pins in the SET mask are HIGH (released). Absent = LOW (asserted).
 // Active LOW: J10/J11 LOW = asserted = game reads L/R as pressed.
 //
-// CRITICAL: The game only uses rot_cum when dopad sees L or R pressed
-// (pad_now bits 7-6 nonzero). Phase state where both J10 and J11 are
-// HIGH causes dopad to read L=0 R=0 → stopclaw → rot_cum cleared.
+// Official spec defines a 4-state Gray code (0→1→3→2→0 CW).
+// However state 2 (both J10/J11 HIGH = both released) causes games to
+// read L=0 R=0 and clear rotary velocity (stopclaw in T2K, equivalent
+// behavior in Impulse X). This produces noticeable paddle/ship drift
+// after stopping. Confirmed on both Tempest 2000 and Impulse X.
 //
-// We use a 3-state sequence: conseq states 0→1→3→0 (CW) or 0→3→1→0 (CCW).
-// All three have at least one pin LOW. State 2 (both HIGH) is never emitted.
-//
+// We use a 3-state sequence skipping state 2:
 // State 0 (00): J10 LOW,  J11 LOW  → SET neither → both asserted
 // State 1 (01): J10 HIGH, J11 LOW  → SET J10     → R(J11) asserted
-// State 3 (11): J10 LOW,  J11 HIGH → SET J11     → L(J10) asserted
-// (State 2 skipped — would be both HIGH → stopclaw)
+// State 3 (10): J10 LOW,  J11 HIGH → SET J11     → L(J10) asserted
+// All three states have at least one pin asserted — velocity never clears.
 static const uint32_t phase_gpio_set[3] = {
     0,              // state 0: J10 LOW,  J11 LOW  (both asserted)
     GPIO_MASK_J10,  // state 1: J10 HIGH, J11 LOW  (R asserted)
     GPIO_MASK_J11,  // state 3: J10 LOW,  J11 HIGH (L asserted)
 };
 
-// CW sequence index: 0→1→2→0  (maps to conseq states 0→1→3→0)
-// CCW sequence index: 0→2→1→0 (maps to conseq states 0→3→1→0)
+// CW:  0→1→2→0  (maps to conseq states 0→1→3→0)
+// CCW: 0→2→1→0  (maps to conseq states 0→3→1→0)
 #define PHASE_SEQ_LEN 3
 
 // ============================================================================
