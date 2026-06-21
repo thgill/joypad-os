@@ -514,8 +514,10 @@ void __not_in_flash_func(jaguar_core1_task)(void) {
         uint8_t  idx     = (gpio_in >> STROBE_SHIFT) & 0xF;
         uint32_t set     = jag_strobe_table[idx];
         uint32_t clr     = GPIO_MASK_ALL_OUT & ~set;
-        if (jag_input_mode == JAG_MODE_SPINNER)
+        if (jag_input_mode == JAG_MODE_SPINNER) {
+            set &= ~(GPIO_MASK_J10 | GPIO_MASK_J11);
             clr &= ~(GPIO_MASK_J10 | GPIO_MASK_J11);
+        }
         sio_hw->gpio_set = set;
         if (clr) sio_hw->gpio_clr = clr;
     }
