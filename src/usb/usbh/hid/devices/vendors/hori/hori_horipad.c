@@ -26,7 +26,6 @@ bool is_hori_horipad(uint16_t vid, uint16_t pid)
     // Other
     || (vid == 0x146b && pid == 0x0904) // Nacon Daija Arcade Stick (PS3 Mode)
     || (vid == 0x1292 && pid == 0x4e47) // Fire NEOGEOX Arcade Stick (PS3 HID Mode)
-    || (vid == 0x0079 && pid == 0x0006) // Generic Zero Delay USB Encoder (Standard PC/PS3)
     || (vid == 0x046d && pid == 0xc216) // Logitech F310 (DirectInput / PS3 Mode)
     || (vid == 0x10c4 && pid == 0x82c0) // VIRTUA STICK High Grade (PS3)
   );
