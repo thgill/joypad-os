@@ -262,31 +262,34 @@ static uint32_t __not_in_flash_func(build_row_mask)(
 
 static void build_gamepad_rows(uint32_t buttons) {
     // Row 0: Pause(B0), FireA(B1), Up(J8), Down(J9), Left(J10), Right(J11)
+    // JP_BUTTON_B2 (Circle/East) = Fire A per BlueRetro convention
     jag_row_gpio[0] = build_row_mask(buttons,
         (buttons & JP_BUTTON_S1) != 0,
-        (buttons & JP_BUTTON_B1) != 0,
+        (buttons & JP_BUTTON_B2) != 0,    // Circle/East → Fire A
         (buttons & JP_BUTTON_DU) != 0,
         (buttons & JP_BUTTON_DD) != 0,
         (buttons & JP_BUTTON_DL) != 0,
         (buttons & JP_BUTTON_DR) != 0);
 
     // Row 1: FireB(B1), *(J8), 7(J9), 4(J10), 1(J11)
+    // JP_BUTTON_B1 (Cross/South) = Fire B per BlueRetro convention
     jag_row_gpio[1] = build_row_mask(buttons,
         false,
-        (buttons & JP_BUTTON_B2)  != 0,
+        (buttons & JP_BUTTON_B1)  != 0,    // Cross/South → Fire B
         false,                              // * not mapped
         (buttons & JAG_NUMPAD_7)  != 0,    // 7 on J9
         (buttons & JAG_NUMPAD_4)  != 0,    // 4 on J10
         false);
 
     // Row 2: FireC(B1), 0(J8), 8(J9), 5(J10), 2(J11) — C2 type ID on B0
+    // JP_BUTTON_B3 (Square/West) = Fire C per BlueRetro convention
     jag_row_gpio[2] = build_row_mask(buttons,
         false,
-        (buttons & JP_BUTTON_B3)  != 0,
+        (buttons & JP_BUTTON_B3)  != 0,    // Square/West → Fire C
         false,                              // 0 not mapped
         (buttons & JAG_NUMPAD_8)  != 0,    // 8 on J9
         false,                              // 5 not mapped
-        false);
+        (buttons & JAG_NUMPAD_2)  != 0);   // 2 on J11
 
     // Row 3: Option(B1), #(J8), 9(J9), 6(J10), 3(J11) — C3 type ID on B0
     jag_row_gpio[3] = build_row_mask(buttons,
@@ -514,8 +517,16 @@ static void __not_in_flash_func(jaguar_tap_callback)(
         if (event->analog[ANALOG_LY] < 64)  mapped_buttons |= JP_BUTTON_DU;
         if (event->analog[ANALOG_LY] > 192) mapped_buttons |= JP_BUTTON_DD;
 
+        // Right stick → numpad gun direction (Dual Analog profile only)
+        if (profile_get_active_index(OUTPUT_TARGET_JAGUAR) == JAG_PROFILE_DUAL_ANALOG) {
+            if (event->analog[ANALOG_RX] < 64)  mapped_buttons |= JAG_NUMPAD_4;  // left
+            if (event->analog[ANALOG_RX] > 192) mapped_buttons |= JAG_NUMPAD_6;  // right
+            if (event->analog[ANALOG_RY] < 64)  mapped_buttons |= JAG_NUMPAD_2;  // up
+            if (event->analog[ANALOG_RY] > 192) mapped_buttons |= JAG_NUMPAD_8;  // down
+        }
+
         // M30 2.4G Genesis Mini: C button = ANALOG_R2, Right shoulder (R) = ANALOG_L2
-        if (event->analog[ANALOG_R2] > 64) mapped_buttons |= JP_BUTTON_B1;
+        if (event->analog[ANALOG_R2] > 64) mapped_buttons |= JP_BUTTON_B2;
         if (event->analog[ANALOG_L2] > 64) mapped_buttons |= JAG_NUMPAD_6;
 
         last_gamepad_buttons = raw_buttons;
@@ -686,18 +697,25 @@ void jaguar_device_task(void) {
     static bool     btn_was_pressed  = false;
     static uint32_t btn_press_start  = 0;
     static uint32_t last_dpi_change  = 0;
-    static uint32_t led_restore_at   = 0;
+    static uint32_t led_restore_at      = 0;
+    static bool     led_restore_purple  = false;
 
     uint32_t now = to_ms_since_boot(get_absolute_time());
 
-    // Restore purple LED after yellow invert flash
+    // Restore LED after timed flash
     if (invert_led_flash) {
-        invert_led_flash = false;
-        led_restore_at = now + 400;
+        invert_led_flash   = false;
+        led_restore_at     = now + 400;
+        led_restore_purple = true;   // restore to purple (DPI adjust mode)
     }
     if (led_restore_at && now >= led_restore_at) {
         led_restore_at = 0;
-        leds_set_color(48, 0, 48);
+        if (led_restore_purple) {
+            led_restore_purple = false;
+            leds_set_color(48, 0, 48);  // back to purple (DPI adjust)
+        } else {
+            update_led();               // back to current mode color
+        }
     }
 
     // Left+Right click hold 2s — toggle spinner/mouse mode
@@ -742,14 +760,16 @@ void jaguar_device_task(void) {
             }
             if (!select_armed && (now - select_hold_start) >= 2000) {
                 select_armed = true;
-                leds_set_color(0, 80, 80);
+                // No color change when armed — LED stays current mode color
             }
             if (select_armed && (now - last_switch_ms) >= 500) {
                 if (du_pressed) {
                     uint8_t count = profile_get_count(OUTPUT_TARGET_JAGUAR);
                     uint8_t next = (profile_get_active_index(OUTPUT_TARGET_JAGUAR) + 1) % count;
                     profile_set_active(OUTPUT_TARGET_JAGUAR, next);
+                    // Brief LED off then back on to signal switch
                     leds_set_color(0, 0, 0);
+                    led_restore_at = now + 150;
                     last_switch_ms = now;
                     printf("[jaguar] Profile: %d\n", next);
                 } else if (dd_pressed) {
@@ -757,6 +777,7 @@ void jaguar_device_task(void) {
                     uint8_t prev = (profile_get_active_index(OUTPUT_TARGET_JAGUAR) + count - 1) % count;
                     profile_set_active(OUTPUT_TARGET_JAGUAR, prev);
                     leds_set_color(0, 0, 0);
+                    led_restore_at = now + 150;
                     last_switch_ms = now;
                     printf("[jaguar] Profile: %d\n", prev);
                 }
