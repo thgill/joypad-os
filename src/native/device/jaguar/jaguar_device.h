@@ -90,6 +90,7 @@
 typedef enum {
     JAG_MODE_GAMEPAD = 0,   // USB gamepad → standard joypad matrix
     JAG_MODE_SPINNER = 1,   // USB mouse   → digital spinner + ROTARY type ID
+    JAG_MODE_MOUSE   = 2,   // USB mouse   → ST/Amiga quadrature mouse protocol
 } jag_input_mode_t;
 
 // ============================================================================
@@ -117,11 +118,13 @@ extern volatile uint32_t jag_strobe_table[16];
 extern volatile uint8_t jag_row_data[4];
 
 // Phase sequence index (0-2, into 3-state safe sequence)
-extern volatile uint8_t jag_phase_idx;
+extern volatile uint8_t jag_phase_idx;    // X axis (J10/J11)
+extern volatile uint8_t jag_phase_y_idx;  // Y axis (J8/J9) — mouse mode only
 
 // Pending phase steps: Core 0 accumulates, Core 1 drains one per interval
 // Positive = CW, negative = CCW
-extern volatile int16_t jag_phase_pending;
+extern volatile int16_t jag_phase_pending;    // X axis
+extern volatile int16_t jag_phase_y_pending;  // Y axis — mouse mode only
 
 // Step interval in microseconds — derived from spinner_divisor by Core 0
 extern volatile uint32_t jag_step_interval_us;

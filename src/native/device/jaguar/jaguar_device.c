@@ -31,10 +31,12 @@
 // FLASH STORAGE LAYOUT (uses reserved[] bytes in flash_t)
 // reserved[0] = spinner divisor
 // reserved[1] = spinner invert (0 = normal, 1 = inverted)
+// reserved[2] = mouse mode (0 = spinner, 1 = ST/Amiga mouse)
 // ============================================================================
 
-#define FLASH_DIVISOR_IDX  0
-#define FLASH_INVERT_IDX   1
+#define FLASH_DIVISOR_IDX    0
+#define FLASH_INVERT_IDX     1
+#define FLASH_MOUSE_MODE_IDX 2
 
 // ============================================================================
 // GPIO MASKS — all output pin bitmasks in the 32-bit SIO GPIO register
@@ -119,13 +121,15 @@ volatile uint32_t jag_strobe_table[16];
 
 // Exposed shared state (used by header declarations)
 volatile uint8_t          jag_row_data[4] = { 0xFF, 0xFF, 0xFF, 0xFF };
-volatile uint8_t          jag_phase_idx   = 0;  // 0..2 index into phase_gpio_set
+volatile uint8_t          jag_phase_idx   = 0;  // X axis (J10/J11) phase index
+volatile uint8_t          jag_phase_y_idx = 0;  // Y axis (J8/J9) phase index
 volatile jag_input_mode_t jag_input_mode  = JAG_MODE_GAMEPAD;
 
 // Pending phase steps: Core 0 accumulates signed steps from mouse deltas.
 // Core 1 drains one step at a time at a timer-controlled rate.
 // Positive = CW, negative = CCW.
-volatile int16_t          jag_phase_pending = 0;
+volatile int16_t          jag_phase_pending   = 0;  // X axis
+volatile int16_t          jag_phase_y_pending = 0;  // Y axis
 
 // Step interval in microseconds — controls spinner speed.
 // Core 0 writes this; Core 1 reads it each drain cycle.
@@ -140,9 +144,16 @@ static uint8_t  spinner_divisor      = JAG_SPINNER_DIVISOR_DEFAULT;
 static bool     spinner_invert       = false;
 static bool     invert_led_flash     = false;
 static int16_t  phase_accum          = 0;
+static int16_t  phase_y_accum        = 0;
+static bool     mouse_mode           = false;
 static bool     device_connected     = false;
 static bool     dpi_adjust_mode      = false;
 static uint32_t last_gamepad_buttons = 0;
+
+// Left+Right click combo for mouse mode toggle — updated in tap, checked in task
+static bool     lr_held_state    = false;
+static uint32_t lr_hold_start_ms = 0;
+static bool     lr_toggled_state = false;
 
 // ============================================================================
 // FLASH HELPERS
@@ -155,16 +166,20 @@ static void load_settings(void) {
     if (d >= JAG_SPINNER_DIVISOR_MIN && d <= JAG_SPINNER_DIVISOR_MAX)
         spinner_divisor = d;
     spinner_invert = s->reserved[FLASH_INVERT_IDX] != 0;
-    printf("[jaguar] Loaded — divisor=%d invert=%d\n", spinner_divisor, spinner_invert);
+    mouse_mode     = s->reserved[FLASH_MOUSE_MODE_IDX] != 0;
+    printf("[jaguar] Loaded — divisor=%d invert=%d mouse=%d\n",
+           spinner_divisor, spinner_invert, mouse_mode);
 }
 
 static void save_settings(void) {
     flash_t* s = flash_get_settings();
     if (!s) return;
-    s->reserved[FLASH_DIVISOR_IDX] = spinner_divisor;
-    s->reserved[FLASH_INVERT_IDX]  = spinner_invert ? 1 : 0;
+    s->reserved[FLASH_DIVISOR_IDX]    = spinner_divisor;
+    s->reserved[FLASH_INVERT_IDX]     = spinner_invert ? 1 : 0;
+    s->reserved[FLASH_MOUSE_MODE_IDX] = mouse_mode ? 1 : 0;
     flash_save(s);
-    printf("[jaguar] Saved — divisor=%d invert=%d\n", spinner_divisor, spinner_invert);
+    printf("[jaguar] Saved — divisor=%d invert=%d mouse=%d\n",
+           spinner_divisor, spinner_invert, mouse_mode);
 }
 
 // ============================================================================
@@ -173,8 +188,10 @@ static void save_settings(void) {
 
 static void update_led(void) {
     switch (jag_input_mode) {
-        case JAG_MODE_GAMEPAD: leds_set_color(0, 80,  0); break;  // green
-        case JAG_MODE_SPINNER: leds_set_color(0,  0, 80); break;  // blue
+        case JAG_MODE_GAMEPAD: leds_set_color(80,  0,  0); break;  // red
+        case JAG_MODE_SPINNER: leds_set_color(0,   0, 80); break;  // blue
+        case JAG_MODE_MOUSE:   leds_set_color(0,  80,  0); break;  // green
+        default:               leds_set_color(80,  0,  0); break;  // red
     }
 }
 
@@ -189,42 +206,28 @@ static void update_led(void) {
 // ============================================================================
 
 static void build_strobe_table(void) {
-    uint32_t release = (jag_input_mode == JAG_MODE_SPINNER)
-        ? GPIO_MASK_ALL_OUT & ~(GPIO_MASK_J10 | GPIO_MASK_J11)
-        : GPIO_MASK_ALL_OUT;
+    bool is_mouse   = (jag_input_mode == JAG_MODE_MOUSE);
+    bool is_spinner = (jag_input_mode == JAG_MODE_SPINNER);
+
+    uint32_t release = GPIO_MASK_ALL_OUT;
+    if (is_spinner || is_mouse) release &= ~(GPIO_MASK_J10 | GPIO_MASK_J11);
+    if (is_mouse)               release &= ~(GPIO_MASK_J8  | GPIO_MASK_J9);
 
     for (uint8_t i = 0; i < 16; i++) {
-        // Invert bits: active LOW strobe pins mean active bit = 0 in gpio_in
-        // Bit 0 = J0, bit 1 = J1, bit 2 = J2, bit 3 = J3
-        // Active when bit is 0 in gpio_in, so active = ~i & 0xF
         uint8_t active = (~i) & 0xF;
 
         if (active == 0) {
-            // No strobe — release all
             jag_strobe_table[i] = release;
-        } else if (active & 0x1) {
-            // J0 active (Row 0) — lowest priority wins for multi-strobe
-            uint32_t mask = jag_row_gpio[0];
-            if (jag_input_mode == JAG_MODE_SPINNER)
-                mask |= (GPIO_MASK_J10 | GPIO_MASK_J11);
-            jag_strobe_table[i] = mask;
-        } else if (active & 0x2) {
-            // J1 active (Row 1)
-            uint32_t mask = jag_row_gpio[1];
-            if (jag_input_mode == JAG_MODE_SPINNER)
-                mask |= (GPIO_MASK_J10 | GPIO_MASK_J11);
-            jag_strobe_table[i] = mask;
-        } else if (active & 0x4) {
-            // J2 active (Row 2)
-            uint32_t mask = jag_row_gpio[2];
-            if (jag_input_mode == JAG_MODE_SPINNER)
-                mask |= (GPIO_MASK_J10 | GPIO_MASK_J11);
-            jag_strobe_table[i] = mask;
         } else {
-            // J3 active (Row 3)
-            uint32_t mask = jag_row_gpio[3];
-            if (jag_input_mode == JAG_MODE_SPINNER)
-                mask |= (GPIO_MASK_J10 | GPIO_MASK_J11);
+            uint32_t mask;
+            if      (active & 0x1) mask = jag_row_gpio[0];
+            else if (active & 0x2) mask = jag_row_gpio[1];
+            else if (active & 0x4) mask = jag_row_gpio[2];
+            else                   mask = jag_row_gpio[3];
+
+            if (is_spinner || is_mouse) mask |= (GPIO_MASK_J10 | GPIO_MASK_J11);
+            if (is_mouse)               mask |= (GPIO_MASK_J8  | GPIO_MASK_J9);
+
             jag_strobe_table[i] = mask;
         }
     }
@@ -343,27 +346,45 @@ static void __not_in_flash_func(jaguar_tap_callback)(
         jag_row_gpio[1]   = GPIO_MASK_ALL_OUT;
         jag_row_gpio[2]   = GPIO_MASK_ALL_OUT;
         jag_row_gpio[3]   = GPIO_MASK_ALL_OUT;
-        jag_phase_idx     = 0;
-        jag_phase_pending = 0;
+        jag_phase_idx       = 0;
+        jag_phase_y_idx     = 0;
+        jag_phase_pending   = 0;
+        jag_phase_y_pending = 0;
         jag_step_interval_us = 0;
+        phase_accum   = 0;
+        phase_y_accum = 0;
         leds_set_color(0, 0, 0);
         return;
     }
 
     if (event->type == INPUT_TYPE_MOUSE) {
-        if (!device_connected || jag_input_mode != JAG_MODE_SPINNER) {
+        // Determine current mouse sub-mode from saved mouse_mode flag
+        jag_input_mode_t target_mode = mouse_mode ? JAG_MODE_MOUSE : JAG_MODE_SPINNER;
+
+        if (!device_connected || jag_input_mode != target_mode) {
             device_connected = true;
-            jag_input_mode   = JAG_MODE_SPINNER;
+            jag_input_mode   = target_mode;
+            phase_accum      = 0;
+            phase_y_accum    = 0;
+            build_strobe_table(); __dmb();
             update_led();
-            printf("[jaguar] Spinner mode — divisor=%d\n", spinner_divisor);
+            printf("[jaguar] %s mode — divisor=%d\n",
+                mouse_mode ? "Mouse" : "Spinner", spinner_divisor);
         }
 
-        // In DPI adjust mode: left click = faster (lower divisor),
-        // right click = slower (higher divisor),
-        // middle click = toggle direction invert.
-        // Clicks consumed here, not passed to game.
-        // Movement still passes through for live preview.
-        if (dpi_adjust_mode) {
+        // Left+Right click held 2s → toggle spinner/mouse mode
+        bool lr_held = (event->buttons & JP_BUTTON_B1) && (event->buttons & JP_BUTTON_B2);
+        if (!lr_held) {
+            lr_held_state    = false;
+            lr_toggled_state = false;
+        } else if (!lr_held_state) {
+            lr_hold_start_ms = to_ms_since_boot(get_absolute_time());
+            lr_held_state    = true;
+            lr_toggled_state = false;
+        }
+
+        // DPI adjust mode (spinner only — mouse uses raw delta)
+        if (dpi_adjust_mode && !mouse_mode) {
             static uint32_t last_dpi_change = 0;
             uint32_t now = to_ms_since_boot(get_absolute_time());
             if (now - last_dpi_change >= 300) {
@@ -387,47 +408,93 @@ static void __not_in_flash_func(jaguar_tap_callback)(
                     printf("[jaguar] Invert: %d\n", spinner_invert);
                 }
             }
-            // Fall through to phase accumulation for live preview
         }
 
-        // Accumulate mouse delta into pending steps.
-        // Each unit of delta_x past the divisor threshold = one phase step.
-        // On direction change, flush pending to stop immediately.
-        int16_t delta = (spinner_invert && jag_input_mode == JAG_MODE_SPINNER)
-            ? -event->delta_x
-            : event->delta_x;
-        if (delta != 0) {
-            int16_t new_steps = 0;
-            phase_accum += delta;
-            if (phase_accum >= spinner_divisor) {
-                new_steps = 1;
-                phase_accum = 0;
-            } else if (phase_accum <= -spinner_divisor) {
-                new_steps = -1;
-                phase_accum = 0;
-            }
-            if (new_steps != 0) {
-                if ((new_steps > 0 && jag_phase_pending < 0) ||
-                    (new_steps < 0 && jag_phase_pending > 0)) {
-                    jag_phase_pending = 0;
+        if (mouse_mode) {
+            // ---- ST/Amiga mouse mode ----
+            // X axis: quadrature on J10/J11 (same as spinner)
+            // Y axis: quadrature on J8/J9
+            // Buttons: Left=B0 (JP_BUTTON_S1), Right=B1 (JP_BUTTON_B1)
+            // No divisor — direct delta to quadrature steps
+
+            // X axis
+            int16_t dx = spinner_invert ? -event->delta_x : event->delta_x;
+            if (dx != 0) {
+                int16_t steps = 0;
+                phase_accum += dx;
+                if (phase_accum >= 1) { steps = 1;  phase_accum = 0; }
+                else if (phase_accum <= -1) { steps = -1; phase_accum = 0; }
+                if (steps != 0) {
+                    if ((steps > 0 && jag_phase_pending < 0) ||
+                        (steps < 0 && jag_phase_pending > 0))
+                        jag_phase_pending = 0;
+                    jag_phase_pending += steps;
+                    jag_step_interval_us = 1000u;  // fast for mouse
+                    __dmb();
                 }
-                jag_phase_pending += new_steps;
-                jag_step_interval_us = (uint32_t)spinner_divisor * 3000u;
-                __dmb();
             }
-        } else {
-            phase_accum = 0;
-        }
 
-        // Pass buttons to game only when not in DPI adjust mode
-        uint32_t btns = 0;
-        if (!dpi_adjust_mode) {
-            if (event->buttons & JP_BUTTON_B1) btns |= JP_BUTTON_B2;   // Left click  → B
-            if (event->buttons & JP_BUTTON_B2) btns |= JP_BUTTON_B1;   // Right click → A
-            if (event->buttons & JP_BUTTON_S2) btns |= JP_BUTTON_B3;   // Middle click → C
-            if (event->buttons & JP_BUTTON_S1) btns |= JP_BUTTON_S1;   // Side → Pause (if present)
+            // Y axis
+            int16_t dy = event->delta_y;
+            if (dy != 0) {
+                int16_t steps = 0;
+                phase_y_accum += dy;
+                if (phase_y_accum >= 1) { steps = 1;  phase_y_accum = 0; }
+                else if (phase_y_accum <= -1) { steps = -1; phase_y_accum = 0; }
+                if (steps != 0) {
+                    if ((steps > 0 && jag_phase_y_pending < 0) ||
+                        (steps < 0 && jag_phase_y_pending > 0))
+                        jag_phase_y_pending = 0;
+                    jag_phase_y_pending += steps;
+                    __dmb();
+                }
+            }
+
+            // Mouse buttons: Left=B0(Pause pin), Right=B1(FireA pin)
+            uint32_t btns = 0;
+            if (!dpi_adjust_mode) {
+                if (event->buttons & JP_BUTTON_B1) btns |= JP_BUTTON_S1;   // Left  → B0
+                if (event->buttons & JP_BUTTON_B2) btns |= JP_BUTTON_B1;   // Right → B1
+            }
+            build_spinner_rows(btns);
+
+        } else {
+            // ---- Spinner mode ----
+            int16_t delta = (spinner_invert && jag_input_mode == JAG_MODE_SPINNER)
+                ? -event->delta_x
+                : event->delta_x;
+            if (delta != 0) {
+                int16_t new_steps = 0;
+                phase_accum += delta;
+                if (phase_accum >= spinner_divisor) {
+                    new_steps = 1;
+                    phase_accum = 0;
+                } else if (phase_accum <= -spinner_divisor) {
+                    new_steps = -1;
+                    phase_accum = 0;
+                }
+                if (new_steps != 0) {
+                    if ((new_steps > 0 && jag_phase_pending < 0) ||
+                        (new_steps < 0 && jag_phase_pending > 0))
+                        jag_phase_pending = 0;
+                    jag_phase_pending += new_steps;
+                    jag_step_interval_us = (uint32_t)spinner_divisor * 3000u;
+                    __dmb();
+                }
+            } else {
+                phase_accum = 0;
+            }
+
+            // Pass buttons to game only when not in DPI adjust mode
+            uint32_t btns = 0;
+            if (!dpi_adjust_mode) {
+                if (event->buttons & JP_BUTTON_B1) btns |= JP_BUTTON_B2;   // Left  → B
+                if (event->buttons & JP_BUTTON_B2) btns |= JP_BUTTON_B1;   // Right → A
+                if (event->buttons & JP_BUTTON_S2) btns |= JP_BUTTON_B3;   // Middle → C
+                if (event->buttons & JP_BUTTON_S1) btns |= JP_BUTTON_S1;   // Side → Pause
+            }
+            build_spinner_rows(btns);
         }
-        build_spinner_rows(btns);
 
     } else {
         if (!device_connected || jag_input_mode != JAG_MODE_GAMEPAD) {
@@ -481,6 +548,7 @@ static void __not_in_flash_func(jaguar_tap_callback)(
 void __not_in_flash_func(jaguar_core1_task)(void) {
     uint32_t last_step  = timer_hw->timerawl;
     uint8_t  seq_idx    = 0;
+    uint8_t  seq_y_idx  = 0;
 
     while (true) {
         // ---- Spinner phase output (spinner mode only) ----
@@ -507,16 +575,70 @@ void __not_in_flash_func(jaguar_core1_task)(void) {
             if (phase_clr) sio_hw->gpio_clr = phase_clr;
         }
 
+        // ---- Mouse mode: drive X (J10/J11) and Y (J8/J9) quadrature ----
+        if (jag_input_mode == JAG_MODE_MOUSE) {
+            uint32_t now = timer_hw->timerawl;
+
+            // X axis (J10/J11) — same 3-state sequence as spinner
+            int16_t px = jag_phase_pending;
+            uint32_t interval = jag_step_interval_us;
+            if (px != 0 && interval > 0 && (now - last_step) >= interval) {
+                if (px > 0) {
+                    seq_idx = (seq_idx + PHASE_SEQ_LEN - 1) % PHASE_SEQ_LEN;
+                    jag_phase_pending = px - 1;
+                } else {
+                    seq_idx = (seq_idx + 1) % PHASE_SEQ_LEN;
+                    jag_phase_pending = px + 1;
+                }
+                jag_phase_idx = seq_idx;
+                last_step = now;
+            }
+
+            // Y axis (J8/J9) — same 3-state sequence, independent timer
+            // Reuse last_step for X; Y uses its own static
+            static uint32_t last_step_y = 0;
+            int16_t py = jag_phase_y_pending;
+            if (py != 0 && interval > 0 && (now - last_step_y) >= interval) {
+                if (py > 0) {
+                    seq_y_idx = (seq_y_idx + PHASE_SEQ_LEN - 1) % PHASE_SEQ_LEN;
+                    jag_phase_y_pending = py - 1;
+                } else {
+                    seq_y_idx = (seq_y_idx + 1) % PHASE_SEQ_LEN;
+                    jag_phase_y_pending = py + 1;
+                }
+                jag_phase_y_idx = seq_y_idx;
+                last_step_y = now;
+            }
+
+            // Drive X axis pins (J10=XA, J11=XB)
+            uint32_t x_set = phase_gpio_set[seq_idx];
+            uint32_t x_clr = (GPIO_MASK_J10 | GPIO_MASK_J11) & ~x_set;
+            if (x_set) sio_hw->gpio_set = x_set;
+            if (x_clr) sio_hw->gpio_clr = x_clr;
+
+            // Drive Y axis pins (J8=YA, J9=YB) using same phase table
+            // Map phase_gpio_set J10/J11 bits to J8/J9 equivalents
+            uint32_t y_raw = phase_gpio_set[seq_y_idx];
+            uint32_t y_set = 0;
+            if (y_raw & GPIO_MASK_J10) y_set |= GPIO_MASK_J8;
+            if (y_raw & GPIO_MASK_J11) y_set |= GPIO_MASK_J9;
+            uint32_t y_clr = (GPIO_MASK_J8 | GPIO_MASK_J9) & ~y_set;
+            if (y_set) sio_hw->gpio_set = y_set;
+            if (y_clr) sio_hw->gpio_clr = y_clr;
+        }
+
         // ---- Button/direction output — single lookup table access ----
-        // Extract 4 strobe bits, index into precomputed table.
-        // One read, one table lookup, two writes — minimum possible overhead.
         uint32_t gpio_in = sio_hw->gpio_in;
         uint8_t  idx     = (gpio_in >> STROBE_SHIFT) & 0xF;
         uint32_t set     = jag_strobe_table[idx];
         uint32_t clr     = GPIO_MASK_ALL_OUT & ~set;
-        if (jag_input_mode == JAG_MODE_SPINNER) {
+        if (jag_input_mode == JAG_MODE_SPINNER || jag_input_mode == JAG_MODE_MOUSE) {
             set &= ~(GPIO_MASK_J10 | GPIO_MASK_J11);
             clr &= ~(GPIO_MASK_J10 | GPIO_MASK_J11);
+        }
+        if (jag_input_mode == JAG_MODE_MOUSE) {
+            set &= ~(GPIO_MASK_J8 | GPIO_MASK_J9);
+            clr &= ~(GPIO_MASK_J8 | GPIO_MASK_J9);
         }
         sio_hw->gpio_set = set;
         if (clr) sio_hw->gpio_clr = clr;
@@ -576,6 +698,25 @@ void jaguar_device_task(void) {
     if (led_restore_at && now >= led_restore_at) {
         led_restore_at = 0;
         leds_set_color(48, 0, 48);
+    }
+
+    // Left+Right click hold 2s — toggle spinner/mouse mode
+    // Checked here (not in tap) so timer runs even when mouse isn't moving
+    if (device_connected &&
+        (jag_input_mode == JAG_MODE_SPINNER || jag_input_mode == JAG_MODE_MOUSE) &&
+        lr_held_state && !lr_toggled_state &&
+        (now - lr_hold_start_ms) >= 2000) {
+        lr_toggled_state = true;
+        mouse_mode       = !mouse_mode;
+        jag_input_mode   = mouse_mode ? JAG_MODE_MOUSE : JAG_MODE_SPINNER;
+        phase_accum      = 0;
+        phase_y_accum    = 0;
+        jag_phase_pending   = 0;
+        jag_phase_y_pending = 0;
+        build_strobe_table(); __dmb();
+        save_settings();
+        update_led();
+        printf("[jaguar] Mode toggled: %s\n", mouse_mode ? "Mouse" : "Spinner");
     }
 
     // Profile switching: hold Select (S1) 2s then tap dpad up/down.
@@ -689,6 +830,9 @@ void jaguar_device_init(void) {
     build_strobe_table(); __dmb();
 
     load_settings();
+
+    // Set initial LED color — red breathing until a controller connects
+    leds_set_color(80, 0, 0);
 
     // Register player count callback so profile_check_switch_combo
     // fires correctly (it guards on player count internally)
