@@ -25,6 +25,11 @@
 
 ### USB4AMI — USB HID to Amiga / C64 / Atari
 
+<p align="center">
+  <img src="docs/retrofrog/images/usb4ami_front.png" alt="USB4AMI front" width="45%">
+  <img src="docs/retrofrog/images/usb4ami_back.png" alt="USB4AMI back" width="45%">
+</p>
+
 Use any modern USB gamepad or mouse with your Commodore Amiga, Commodore 64, Atari ST, and more. Plugs directly into the DE9 joystick/mouse port with no modification to your computer required.
 
 **Supported computers:**
