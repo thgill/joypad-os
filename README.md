@@ -12,6 +12,9 @@
 
 <p align="center">
   <a href="https://retrofrog.net"><img src="https://img.shields.io/badge/Website-retrofrog.net-ff69b4?style=for-the-badge" alt="Website" /></a>
+  <a href="https://retrofrog.net/"><img src="https://img.shields.io/badge/Store-retrofrog.net-ff69b4?style=for-the-badge" alt="Store" /></a>
+  <a href="https://bsky.app/profile/retrofrog.bsky.social"><img src="https://img.shields.io/badge/Bluesky-retrofrog-0285FF?style=for-the-badge&logo=bluesky" alt="Bluesky" /></a>
+  <a href="https://x.com/ToddsNerdCave"><img src="https://img.shields.io/badge/X-ToddsNerdCave-000000?style=for-the-badge&logo=x" alt="X" /></a>
   <a href="https://github.com/thgill/joypad-os/releases"><img src="https://img.shields.io/github/downloads/thgill/joypad-os/total?style=for-the-badge&label=Downloads" alt="Downloads" /></a>
   <a href="https://github.com/thgill/joypad-os/blob/main/LICENSE"><img src="https://img.shields.io/github/license/thgill/joypad-os?style=for-the-badge" alt="License" /></a>
 </p>
@@ -20,9 +23,17 @@
 
 ## Products
 
-### USB4AMI — USB HID to Amiga / C64 / Atari ST
+### USB4AMI — USB HID to Amiga / C64 / Atari
 
-Use any modern USB gamepad or mouse with your Commodore Amiga, Commodore 64, or Atari ST. Plugs into the DE9 joystick port with no modification to your computer required.
+Use any modern USB gamepad or mouse with your Commodore Amiga, Commodore 64, Atari ST, and more. Plugs directly into the DE9 joystick/mouse port with no modification to your computer required.
+
+**Supported computers:**
+
+| Mode | Computers |
+|------|-----------|
+| **Amiga** | Commodore Amiga (all models) |
+| **C64** | Commodore 64 (including Ultimate64), Commodore 128, MEGA65 |
+| **Atari** | Atari ST (all), Atari Falcon, Atari 8-bit computers (all) |
 
 **Supported input:**
 - USB gamepads — Xbox, PlayStation, Nintendo Switch, 8BitDo, and most generic HID controllers
@@ -32,8 +43,7 @@ Use any modern USB gamepad or mouse with your Commodore Amiga, Commodore 64, or 
 - Amiga joystick and quadrature mouse
 - CD32 controller (auto-detected on Amiga)
 - Commodore 64 joystick and C1351 proportional mouse
-- Atari ST joystick and quadrature mouse
-
+- Atari joystick and quadrature mouse
 
 **[USB4AMI User Guide →](docs/retrofrog/usb4ami/user_guide.md)**
 
@@ -43,7 +53,7 @@ Use any modern USB gamepad or mouse with your Commodore Amiga, Commodore 64, or 
 
 ### USB4NEO — USB HID to Neo Geo and Supergun
 
-Use any modern USB HID gamepad or joystick with your Neo Geo AES, MVS, CD consoles and most Supergun setups that have the standard Neo Geo DB15 controller connector
+Use any modern USB HID gamepad or joystick with your Neo Geo AES, MVS, CD consoles and most Supergun setups that have the standard Neo Geo DB15 controller connector.
 
 **Supported input:**
 - USB gamepads — Xbox, PlayStation, Nintendo Switch, 8BitDo, and most generic HID controllers
@@ -67,7 +77,8 @@ Use any modern USB HID gamepad or joystick with your Neo Geo AES, MVS, CD consol
 2. Hold the button and connect the USB-A cable to your computer
 3. Drag the `.uf2` file onto the `RP2350` drive that appears
 4. Done — the drive ejects and your adapter is running the new firmware
-5. Note: Always disconnect the USB adapter from your console/vintage computer prior to updating!!
+
+> **Note:** Always disconnect the adapter from your console or vintage computer before updating firmware.
 
 ---
 
@@ -101,6 +112,9 @@ Output: `releases/joypad_<commit>_usb2ami_retrofrog.uf2`
 ## Support
 
 - **Website:** [retrofrog.net](https://retrofrog.net)
+- **Store:** [retrofrog.net](https://retrofrog.net/)
+- **Bluesky:** [@retrofrog.bsky.social](https://bsky.app/profile/retrofrog.bsky.social)
+- **X:** [@ToddsNerdCave](https://x.com/ToddsNerdCave)
 - **Issues:** [GitHub Issues](https://github.com/thgill/joypad-os/issues)
 
 ---
