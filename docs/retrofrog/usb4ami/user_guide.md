@@ -2,25 +2,35 @@
 
 ## What is USB4AMI?
 
-USB4AMI is a small adapter that lets you use modern USB controllers and mice with classic computers including the Commodore Amiga, Commodore 64, and Atari ST. It connects to your computer's joystick port and translates input from any compatible USB device into the signals your retro computer understands.
+USB4AMI is a small adapter that lets you use modern USB controllers and mice with classic computers including the Commodore Amiga, Commodore 64, and Atari computers. It plugs directly into your computer's joystick/mouse port and translates input from any compatible USB device into the signals your retro computer understands.
+
+---
+
+## Supported Platforms
+
+USB4AMI supports three modes, selected via the BOOTSEL button. The table below shows which mode to use for each computer.
+
+| Mode | LED Color | Supported Computers |
+|------|-----------|-------------------|
+| **Amiga** | Amber | Commodore Amiga (all models) |
+| **C64** | Blue | Commodore 64 (including Ultimate64), Commodore 128, MEGA65 |
+| **Atari** | Green | Atari ST (all), Atari Falcon, Atari 8-bit computers (all) |
 
 ---
 
 ## What's in the Box
 
 - USB4AMI adapter
-- USB-A cable for firmware updates
 
 ---
 
 ## Connecting USB4AMI
 
-1. Plug the DE9 cable into joystick port 1 on your retro computer.
-2. Connect the other end to USB4AMI.
-3. Plug your USB controller or mouse into the USB-A port on USB4AMI.
-4. Power on your computer.
+1. Plug USB4AMI directly into your retro computer's joystick/mouse port.
+2. Plug your USB controller or mouse into the USB-A port on USB4AMI.
+3. Power on your computer.
 
-> **Note:** USB4AMI is powered by your USB device. No separate power supply is needed.
+> **Note:** USB4AMI is powered by your computer. No separate power supply is needed.
 
 ---
 
@@ -32,98 +42,110 @@ The LED on USB4AMI tells you what's going on at a glance.
 |-------|---------|
 | Breathing (any color) | Waiting for a USB device to connect |
 | **Amber** | Amiga mode active |
-| **Blue** | Commodore 64 mode active |
-| **Green** | Atari ST mode active |
+| **Blue** | C64 mode active |
+| **Green** | Atari mode active |
 | **Purple** | DPI adjustment mode active |
 
 ---
 
-## Choosing Your Platform (Amiga, C64, or Atari ST)
+## Choosing Your Platform
 
-USB4AMI needs to know which computer it's connected to. You select your platform by tapping the BOOTSEL button within the first **5 seconds** after powering on.
+USB4AMI needs to know which computer it's connected to. You select your platform by tapping the BOOTSEL button within the first **8 seconds** after powering on.
 
 **How to do it:**
 1. Power on your computer with USB4AMI connected.
-2. Within 5 seconds, tap the BOOTSEL button to cycle through platforms:
-   - Tap once → C64 (blue)
-   - Tap again → Atari ST (green)
-   - Tap again → back to Amiga (amber)
+2. Within 8 seconds, tap the BOOTSEL button to cycle through modes:
+   - First tap → C64 (blue)
+   - Second tap → Atari (green)
+   - Third tap → back to Amiga (amber)
 3. Stop tapping when your platform's color appears.
 
-The LED will show the selected platform color. Your choice is automatically saved and remembered next time you power on.
+Your choice is automatically saved and remembered next time you power on.
 
-> **Tip:** If you don't tap anything within 5 seconds, USB4AMI stays on your last saved platform.
+> **Tip:** If you don't tap anything within 8 seconds, USB4AMI stays on your last saved platform.
 
 ---
 
 ## Using a Gamepad or Joystick
 
-USB4AMI works with most USB gamepads including Xbox, PlayStation, and 8BitDo controllers.
+USB4AMI works with most USB gamepads including Xbox, PlayStation, Nintendo Switch, and 8BitDo controllers, as well as most generic USB HID gamepads.
 
 ### Basic Controls
 - **D-pad or left analog stick** → directional movement
 - **B button (or equivalent)** → fire button
 
 ### Turbo Fire
-Hold **Select** and press a face button to toggle turbo fire on that button. The LED will blink briefly to confirm. Press the same combination again to turn turbo off.
+Hold **Select** and press a face button to toggle turbo fire on that button. The LED will blink 2 times every 3 seconds to indicate turbo is enabled. Press the same combination again to turn turbo off.
 
 ### CD32 Controllers (Amiga only)
-If you're using a CD32-compatible controller on the Amiga, USB4AMI automatically detects and enables the full CD32 button layout. No setup required.
+USB4AMI automatically detects and enables the full CD32 button layout when connected to an Amiga. No setup required. Just like an original CD32 controller, it will gracefully fall back to 1 or 2 button mode for games that don't support the CD32's extra buttons.
 
 ---
 
 ## Using a Mouse
 
-### Amiga and Atari ST
-Connect any USB mouse and it will work as a standard quadrature mouse. Left and right buttons work as expected. On the Amiga, scroll wheel movement is also supported.
+### Amiga
+Connect any USB mouse and it will work as a standard quadrature mouse. Left and right buttons work as expected.
 
-### Commodore 64 (C1351 Mode)
-On C64, USB4AMI emulates a Commodore 1351 proportional mouse. This gives smooth, analog-style cursor movement in software that supports it, such as GEOS and Amiga ports of games.
+### Atari
+Connect any USB mouse and it will work as a standard Atari quadrature mouse. Left and right buttons work as expected.
 
-- **Left mouse button** → fire/left button
-- **Right mouse button** → second button (up pin)
+### C64 (C1351 Mode)
+On C64, USB4AMI emulates a Commodore 1351 proportional mouse. This gives smooth, analog-style cursor movement in software that supports it, such as GEOS.
+
+- **Left mouse button** → left button
+- **Right mouse button** → right button
 
 ---
 
 ## Adjusting Mouse Speed (DPI)
 
-If your mouse feels too fast or too slow, you can adjust the sensitivity without any tools or software.
+If your mouse feels too fast or too slow, you can adjust the sensitivity without any tools or software. USB4AMI uses a DPI divisor to scale mouse movement — a lower divisor means faster movement, a higher divisor means slower movement. The divisor range is **1–8**, with a default of **2**.
 
 **How to adjust:**
-1. Move your mouse to enter mouse mode (LED shows your platform color).
-2. **Hold the middle mouse button for 2 seconds.** The LED turns **purple** to confirm you're in DPI adjust mode.
+1. Connect your USB mouse (LED shows your platform color).
+2. **Hold the middle mouse button for 2 seconds.** The LED turns **purple** to confirm you're in DPI adjustment mode.
 3. While the LED is purple:
-   - **Left mouse button** → faster (less reduction)
-   - **Right mouse button** → slower (more reduction)
+   - **Left mouse button** → faster (decreases the divisor)
+   - **Right mouse button** → slower (increases the divisor)
 4. **Tap the middle mouse button** to exit and save your setting.
 
-The LED returns to your platform color and your new sensitivity is saved automatically.
+The LED returns to your platform color and your new setting is saved automatically.
 
-> **Tip:** DPI is saved separately for each platform, so you can have different speeds for Amiga and C64.
+> **Tip:** DPI is saved separately for each platform, so you can have different speeds set for Amiga, C64, and Atari.
 
 ---
 
 ## Troubleshooting
 
 **The adapter doesn't seem to be doing anything.**
-Make sure you're on the right platform. The LED color tells you which platform is active. If unsure, power cycle and let the 5-second window pass — it will load your last saved platform.
+Check the LED color to confirm which platform is active. If needed, power cycle and tap BOOTSEL within 8 seconds to cycle to your desired platform.
 
 **My mouse or gamepad isn't being recognized.**
-Try a different USB device. Some very old or unusual USB devices may not be supported. Most modern gamepads and mice work out of the box.
+Most modern gamepads and mice work out of the box. Some very old or unusual USB devices may not be supported — try a different USB device.
 
-**The computer behaves strangely after switching firmware or experimenting.**
-Cycle through all platforms using the BOOTSEL button and back to your desired platform. This writes fresh settings to flash and clears any leftover configuration.
+**The computer behaves strangely after a firmware update.**
+USB4AMI automatically resets its settings to safe defaults the first time it boots after a firmware update. If you experience issues, tap BOOTSEL within the first 8 seconds to cycle to your desired platform, which will rewrite your settings cleanly.
 
 **The cursor moves in the wrong direction.**
-Check that you're in the correct platform mode. C64 mouse mode (C1351) and Amiga mouse mode handle movement differently.
+Make sure you're in the correct platform mode. Amiga and Atari use different quadrature encodings — confirm the LED color matches your computer.
 
 **I accidentally changed the DPI and want to reset it.**
-Enter DPI adjust mode (hold MMB 2s) and tap left or right until the speed feels right, then tap MMB to save.
+Enter DPI adjustment mode (hold MMB 2 seconds), adjust until the speed feels right, then tap MMB to save. The default divisor is 2.
+
+---
+
+## Coming Soon
+
+We are actively working on the following features for a future firmware update:
+
+- **Scroll wheel support** — Amiga and C64 scroll wheel support is under investigation. This requires coordination with Amiga and C64 driver software and is a non-trivial implementation. We will announce when this is available.
+- **Atari 7800 support** — The Atari 7800 uses a unique controller port protocol. We are investigating compatibility.
 
 ---
 
 ## Technical Notes
 
 - USB4AMI remembers your platform and DPI settings across power cycles.
-- If you ever need to fully reset, cycle through all platforms — this rewrites settings to flash with fresh defaults.
-- The BOOTSEL button is only active for platform selection during the first 5 seconds after power-on.
+- Settings are automatically reset to defaults the first time USB4AMI boots after a firmware update.
+- The BOOTSEL button is only active for platform selection during the first 8 seconds after power-on.
