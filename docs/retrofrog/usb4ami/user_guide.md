@@ -2,31 +2,31 @@
 
 ## What is USB4AMI?
 
-USB4AMI is a small adapter that lets you use modern USB controllers and mice with classic computers including the Commodore Amiga, Commodore 64, Atari ST and Atari 8 bit computers. It connects to your computer's joystick/mouse port and translates input from any compatible USB device into the signals your retro computer understands.
+USB4AMI is a small adapter that lets you use modern USB controllers and mice with classic computers including the Commodore Amiga, Commodore 64, and Atari computers. It plugs directly into your computer's joystick/mouse port and translates input from any compatible USB device into the signals your retro computer understands.
 
 ---
 
 ## Supported Platforms
 
-Amiga (All)
-Commodore 64 (including Ultimate)
-Commodore 128
-Atari ST (all)
-Atari Falcon
-Atari 8 Bit Computers (All)
-MEGA65
+USB4AMI supports three modes, selected via the BOOTSEL button. The table below shows which mode to use for each computer.
 
+| Mode | LED Color | Supported Computers |
+|------|-----------|-------------------|
+| **Amiga** | Amber | Commodore Amiga (all models including CD32 console) |
+| **C64** | Blue | Commodore 64 (including Ultimate64), Commodore 128, MEGA65 |
+| **Atari** | Green | Atari ST (all), Atari Falcon, Atari 8-bit computers (all) |
+
+---
 
 ## What's in the Box
 
 - USB4AMI adapter
-- USB-A cable for firmware updates
 
 ---
 
 ## Connecting USB4AMI
 
-1. Plug the USB4AMI into your retro computer's joystick port.
+1. Plug USB4AMI directly into your retro computer's joystick/mouse port.
 2. Plug your USB controller or mouse into the USB-A port on USB4AMI.
 3. Power on your computer.
 
@@ -42,25 +42,25 @@ The LED on USB4AMI tells you what's going on at a glance.
 |-------|---------|
 | Breathing (any color) | Waiting for a USB device to connect |
 | **Amber** | Amiga mode active |
-| **Blue** | Commodore 64 mode active |
-| **Green** | Atari ST mode active |
+| **Blue** | C64 mode active |
+| **Green** | Atari mode active |
 | **Purple** | DPI adjustment mode active |
 
 ---
 
-## Choosing Your Platform (Amiga, C64, or Atari ST)
+## Choosing Your Platform
 
 USB4AMI needs to know which computer it's connected to. You select your platform by tapping the BOOTSEL button within the first **8 seconds** after powering on.
 
 **How to do it:**
 1. Power on your computer with USB4AMI connected.
-2. Within 8 seconds, tap the BOOTSEL button to cycle through platforms:
+2. Within 8 seconds, tap the BOOTSEL button to cycle through modes:
    - First tap → C64 (blue)
-   - Second tap → Atari ST (green)
+   - Second tap → Atari (green)
    - Third tap → back to Amiga (amber)
 3. Stop tapping when your platform's color appears.
 
-The LED will show the selected platform color. Your choice is automatically saved and remembered next time you power on.
+Your choice is automatically saved and remembered next time you power on.
 
 > **Tip:** If you don't tap anything within 8 seconds, USB4AMI stays on your last saved platform.
 
@@ -75,10 +75,30 @@ USB4AMI works with most USB gamepads including Xbox, PlayStation, Nintendo Switc
 - **B button (or equivalent)** → fire button
 
 ### Turbo Fire
-Hold **Select** and press a face button to toggle turbo fire on that button. The LED will blink 2 times every 3 seconds to indicate that turbo is enabled. Press the same combination again to turn turbo off.
+Hold **Select** and press a face button to toggle turbo fire on that button. The LED will blink 2 times every 3 seconds to indicate turbo is enabled. Press the same combination again to turn turbo off.
+
+### Up as Jump Profile
+Some games do not have a dedicated button for jump instead they use the up direction. USB4AMI includes an alternate control profile that maps the second button to trigger the up direction, making it act as a jump button.
+
+**To toggle the Up as Jump profile:**
+- Hold **Select + L1 or R1** — the LED will blink once to confirm
+
+The profile alternates between standard and Up as Jump each time you use the combo. The setting resets to standard on power cycle.
+
+> **Note:** Turbo fire is not available on the jump button while Up as Jump is active.
 
 ### CD32 Controllers (Amiga only)
-By default USB4AMI automatically detects and enables the full CD32 button layout. No setup required. And just like an original CD32 controller, it will gracefully fall back to 1 or 2 button gamepad for games that don't take advantage of the CD32's extra buttons. 
+USB4AMI automatically detects and enables the full CD32 button layout when connected to an Amiga. No setup required. Just like an original CD32 controller, it will gracefully fall back to 1 or 2 button mode for games that don't support the CD32's extra buttons.
+
+**CD32 button layout:**
+- **B button (South)** → Red (Fire)
+- **A button (East)** → Blue
+- **Y button (North)** → Green
+- **X button (West)** → Yellow
+- **L1 / R1** → Left and Right shoulder buttons
+- **Start** → Pause
+
+> **Note:** When in CD32 mode, if you have a gamepad with dual analog sticks, the controls are duplicated to them. The dpad is duplicated to the left analog stick and the right analog stick is mapped to the 4 CD32 face buttons. This allows for games that use the 4 CD32 face buttons to play as dual stick shooters! Check out Rogue Declan and Cecconoid for examples of this. 
 
 ---
 
@@ -87,8 +107,8 @@ By default USB4AMI automatically detects and enables the full CD32 button layout
 ### Amiga
 Connect any USB mouse and it will work as a standard quadrature mouse. Left and right buttons work as expected.
 
-### Atari ST
-Connect any USB mouse and it will work as a standard Atari ST quadrature mouse. Left and right buttons work as expected.
+### Atari
+Connect any USB mouse and it will work as a standard Atari quadrature mouse. Left and right buttons work as expected.
 
 ### Commodore 64 (C1351 Mode)
 On C64, USB4AMI emulates a Commodore 1351 proportional mouse. This gives smooth, analog-style cursor movement in software that supports it, such as GEOS.
@@ -112,7 +132,7 @@ If your mouse feels too fast or too slow, you can adjust the sensitivity without
 
 The LED returns to your platform color and your new setting is saved automatically.
 
-> **Tip:** DPI is saved separately for each platform, so you can have different speeds set for Amiga, C64, and Atari ST!
+> **Tip:** DPI is saved separately for each platform, so you can have different speeds set for Amiga, C64, and Atari.
 
 ---
 
@@ -131,19 +151,31 @@ The LED returns to your platform color and your new setting is saved automatical
 ## Troubleshooting
 
 **The adapter doesn't seem to be doing anything.**
-Make sure you're on the right platform. The LED color tells you which platform is active. If unsure, power cycle — USB4AMI will load your last saved platform automatically and then you can press the button to cycle to the desired platform. 
+Check the LED color to confirm which platform is active. If needed, power cycle and tap BOOTSEL within 8 seconds to cycle to your desired platform.
 
 **My mouse or gamepad isn't being recognized.**
-Try a different USB device. Some very old or unusual USB devices may not be supported. Most modern gamepads and mice work out of the box.
+Most modern gamepads and mice work out of the box. Some very old or unusual USB devices may not be supported — try a different USB device.
 
 **The computer behaves strangely after a firmware update.**
-This should not happen — USB4AMI automatically resets its settings to safe defaults the first time it boots after a firmware update. If you do experience issues, tap BOOTSEL (during first 8 seconds of power on) to cycle to your desired platform which will rewrite your settings cleanly.
+USB4AMI automatically resets its settings to safe defaults the first time it boots after a firmware update. If you experience issues, tap BOOTSEL within the first 8 seconds to cycle to your desired platform, which will rewrite your settings cleanly.
 
 **The cursor moves in the wrong direction.**
-Check that you're in the correct platform mode. Amiga and Atari ST use different quadrature encodings and if the cursor misbehaves, make sure the LED color matches your computer.
+Make sure you're in the correct platform mode. Amiga and Atari use different quadrature encodings — confirm the LED color matches your computer.
 
 **I accidentally changed the DPI and want to reset it.**
-Enter DPI adjustment mode (hold MMB 2 seconds) and adjust left or right until the speed feels right, then tap MMB to save. The default divisor is 2.
+Enter DPI adjustment mode (hold MMB 2 seconds), adjust until the speed feels right, then tap MMB to save. The default divisor is 2.
+
+**A CD32 game isn't recognizing all buttons after switching control profiles.**
+Exit the game and relaunch it. CD32 games detect the controller type at startup — relaunching allows USB4AMI to respond correctly to the CD32 detection handshake.
+
+---
+
+## Coming Soon
+
+We are actively working on the following features for a future firmware update:
+
+- **Scroll wheel support** — Amiga and C64 scroll wheel support is under investigation. This requires coordination with Amiga and C64 driver software and is a non-trivial implementation. We will announce when this is available.
+- **Atari 7800 support** — The Atari 7800 uses a unique controller port protocol. We are investigating compatibility.
 
 ---
 
@@ -152,14 +184,4 @@ Enter DPI adjustment mode (hold MMB 2 seconds) and adjust left or right until th
 - USB4AMI remembers your platform and DPI settings across power cycles.
 - Settings are automatically reset to defaults the first time USB4AMI boots after a firmware update.
 - The BOOTSEL button is only active for platform selection during the first 8 seconds after power-on.
-
----
-
-## TODO List
-
-Amiga Scroll Wheel - This will likely require a custom driver to be written (or perhaps we can piggyback off an existing one)
-C64 Scroll Wheel for C64OS 
-Investigate Atari 7800 Support
-
-
-
+- The Up as Jump profile is not saved across power cycles and resets to standard on each boot.
