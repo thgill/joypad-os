@@ -136,6 +136,12 @@ volatile int16_t          jag_phase_y_pending = 0;  // Y axis
 // Derived from spinner_divisor: divisor 1 = fastest, 8 = slowest.
 volatile uint32_t         jag_step_interval_us = 4000;
 
+// Bitmask of GPIO pins owned by the phase driver.
+// Spinner: J10/J11. Mouse: J8/J9/J10/J11. Gamepad: 0.
+// Core 1 excludes these from strobe response — no mode check needed in hot path.
+// Updated by Core 0 in build_strobe_table() on every mode change.
+volatile uint32_t         jag_phase_pin_mask = 0;
+
 // ============================================================================
 // INTERNAL STATE (Core 0 only)
 // ============================================================================
@@ -209,9 +215,17 @@ static void build_strobe_table(void) {
     bool is_mouse   = (jag_input_mode == JAG_MODE_MOUSE);
     bool is_spinner = (jag_input_mode == JAG_MODE_SPINNER);
 
-    uint32_t release = GPIO_MASK_ALL_OUT;
-    if (is_spinner || is_mouse) release &= ~(GPIO_MASK_J10 | GPIO_MASK_J11);
-    if (is_mouse)               release &= ~(GPIO_MASK_J8  | GPIO_MASK_J9);
+    // Update phase pin mask — Core 1 uses this to exclude phase-owned pins
+    // from strobe response without any mode checks in the hot path
+    if (is_mouse) {
+        jag_phase_pin_mask = GPIO_MASK_J8 | GPIO_MASK_J9 | GPIO_MASK_J10 | GPIO_MASK_J11;
+    } else if (is_spinner) {
+        jag_phase_pin_mask = GPIO_MASK_J10 | GPIO_MASK_J11;
+    } else {
+        jag_phase_pin_mask = 0;
+    }
+
+    uint32_t release = GPIO_MASK_ALL_OUT & ~jag_phase_pin_mask;
 
     for (uint8_t i = 0; i < 16; i++) {
         uint8_t active = (~i) & 0xF;
@@ -225,10 +239,8 @@ static void build_strobe_table(void) {
             else if (active & 0x4) mask = jag_row_gpio[2];
             else                   mask = jag_row_gpio[3];
 
-            if (is_spinner || is_mouse) mask |= (GPIO_MASK_J10 | GPIO_MASK_J11);
-            if (is_mouse)               mask |= (GPIO_MASK_J8  | GPIO_MASK_J9);
-
-            jag_strobe_table[i] = mask;
+            // Force phase-owned pins HIGH so Core 1 phase driver owns them
+            jag_strobe_table[i] = mask | jag_phase_pin_mask;
         }
     }
 }
@@ -557,102 +569,115 @@ static void __not_in_flash_func(jaguar_tap_callback)(
 // Maps to conseq states: seq[0]=state0, seq[1]=state1, seq[2]=state3
 
 void __not_in_flash_func(jaguar_core1_task)(void) {
-    uint32_t last_step  = timer_hw->timerawl;
-    uint8_t  seq_idx    = 0;
-    uint8_t  seq_y_idx  = 0;
+    uint32_t last_step   = timer_hw->timerawl;
+    uint32_t last_step_y = timer_hw->timerawl;
+    uint8_t  seq_idx     = 0;
+    uint8_t  seq_y_idx   = 0;
 
     while (true) {
-        // ---- Spinner phase output (spinner mode only) ----
-        if (jag_input_mode == JAG_MODE_SPINNER) {
-            uint32_t now = timer_hw->timerawl;
-            int16_t pending = jag_phase_pending;
-            uint32_t interval = jag_step_interval_us;
+        jag_input_mode_t mode = jag_input_mode;
 
-            if (pending != 0 && interval > 0 && (now - last_step) >= interval) {
-                if (pending > 0) {
-                    seq_idx = (seq_idx + PHASE_SEQ_LEN - 1) % PHASE_SEQ_LEN;
-                    jag_phase_pending = pending - 1;
-                } else {
-                    seq_idx = (seq_idx + 1) % PHASE_SEQ_LEN;
-                    jag_phase_pending = pending + 1;
-                }
-                jag_phase_idx = seq_idx;
-                last_step = now;
+        if (mode == JAG_MODE_GAMEPAD) {
+            // ---- GAMEPAD HOT LOOP — zero phase overhead ----
+            while (jag_input_mode == JAG_MODE_GAMEPAD) {
+                uint32_t gpio_in = sio_hw->gpio_in;
+                uint8_t  idx     = (gpio_in >> STROBE_SHIFT) & 0xF;
+                uint32_t set     = jag_strobe_table[idx];
+                uint32_t clr     = GPIO_MASK_ALL_OUT & ~set;
+                sio_hw->gpio_set = set;
+                if (clr) sio_hw->gpio_clr = clr;
             }
 
-            uint32_t phase_set = phase_gpio_set[seq_idx];
-            uint32_t phase_clr = (GPIO_MASK_J10 | GPIO_MASK_J11) & ~phase_set;
-            if (phase_set) sio_hw->gpio_set = phase_set;
-            if (phase_clr) sio_hw->gpio_clr = phase_clr;
-        }
+        } else if (mode == JAG_MODE_SPINNER) {
+            // ---- SPINNER HOT LOOP ----
+            while (jag_input_mode == JAG_MODE_SPINNER) {
+                uint32_t now      = timer_hw->timerawl;
+                int16_t  pending  = jag_phase_pending;
+                uint32_t interval = jag_step_interval_us;
 
-        // ---- Mouse mode: drive X (J10/J11) and Y (J8/J9) quadrature ----
-        if (jag_input_mode == JAG_MODE_MOUSE) {
-            uint32_t now = timer_hw->timerawl;
-
-            // X axis (J10/J11) — same 3-state sequence as spinner
-            int16_t px = jag_phase_pending;
-            uint32_t interval = jag_step_interval_us;
-            if (px != 0 && interval > 0 && (now - last_step) >= interval) {
-                if (px > 0) {
-                    seq_idx = (seq_idx + PHASE_SEQ_LEN - 1) % PHASE_SEQ_LEN;
-                    jag_phase_pending = px - 1;
-                } else {
-                    seq_idx = (seq_idx + 1) % PHASE_SEQ_LEN;
-                    jag_phase_pending = px + 1;
+                if (pending != 0 && interval > 0 && (now - last_step) >= interval) {
+                    if (pending > 0) {
+                        seq_idx = (seq_idx + PHASE_SEQ_LEN - 1) % PHASE_SEQ_LEN;
+                        jag_phase_pending = pending - 1;
+                    } else {
+                        seq_idx = (seq_idx + 1) % PHASE_SEQ_LEN;
+                        jag_phase_pending = pending + 1;
+                    }
+                    jag_phase_idx = seq_idx;
+                    last_step = now;
                 }
-                jag_phase_idx = seq_idx;
-                last_step = now;
+
+                uint32_t phase_set = phase_gpio_set[seq_idx];
+                uint32_t phase_clr = (GPIO_MASK_J10 | GPIO_MASK_J11) & ~phase_set;
+                if (phase_set) sio_hw->gpio_set = phase_set;
+                if (phase_clr) sio_hw->gpio_clr = phase_clr;
+
+                uint32_t gpio_in = sio_hw->gpio_in;
+                uint8_t  idx     = (gpio_in >> STROBE_SHIFT) & 0xF;
+                uint32_t set     = jag_strobe_table[idx];
+                uint32_t clr     = GPIO_MASK_ALL_OUT & ~set;
+                sio_hw->gpio_set = set;
+                if (clr) sio_hw->gpio_clr = clr;
             }
 
-            // Y axis (J8/J9) — same 3-state sequence, independent timer
-            // Reuse last_step for X; Y uses its own static
-            static uint32_t last_step_y = 0;
-            int16_t py = jag_phase_y_pending;
-            if (py != 0 && interval > 0 && (now - last_step_y) >= interval) {
-                if (py > 0) {
-                    seq_y_idx = (seq_y_idx + PHASE_SEQ_LEN - 1) % PHASE_SEQ_LEN;
-                    jag_phase_y_pending = py - 1;
-                } else {
-                    seq_y_idx = (seq_y_idx + 1) % PHASE_SEQ_LEN;
-                    jag_phase_y_pending = py + 1;
+        } else if (mode == JAG_MODE_MOUSE) {
+            // ---- MOUSE HOT LOOP ----
+            while (jag_input_mode == JAG_MODE_MOUSE) {
+                uint32_t now      = timer_hw->timerawl;
+                uint32_t interval = jag_step_interval_us;
+                uint32_t pm       = jag_phase_pin_mask;
+
+                // X axis
+                int16_t px = jag_phase_pending;
+                if (px != 0 && interval > 0 && (now - last_step) >= interval) {
+                    if (px > 0) {
+                        seq_idx = (seq_idx + PHASE_SEQ_LEN - 1) % PHASE_SEQ_LEN;
+                        jag_phase_pending = px - 1;
+                    } else {
+                        seq_idx = (seq_idx + 1) % PHASE_SEQ_LEN;
+                        jag_phase_pending = px + 1;
+                    }
+                    jag_phase_idx = seq_idx;
+                    last_step = now;
                 }
-                jag_phase_y_idx = seq_y_idx;
-                last_step_y = now;
+
+                // Y axis
+                int16_t py = jag_phase_y_pending;
+                if (py != 0 && interval > 0 && (now - last_step_y) >= interval) {
+                    if (py > 0) {
+                        seq_y_idx = (seq_y_idx + PHASE_SEQ_LEN - 1) % PHASE_SEQ_LEN;
+                        jag_phase_y_pending = py - 1;
+                    } else {
+                        seq_y_idx = (seq_y_idx + 1) % PHASE_SEQ_LEN;
+                        jag_phase_y_pending = py + 1;
+                    }
+                    jag_phase_y_idx = seq_y_idx;
+                    last_step_y = now;
+                }
+
+                // Drive X (J10/J11)
+                uint32_t x_set = phase_gpio_set[seq_idx];
+                uint32_t x_clr = (GPIO_MASK_J10 | GPIO_MASK_J11) & ~x_set;
+                if (x_set) sio_hw->gpio_set = x_set;
+                if (x_clr) sio_hw->gpio_clr = x_clr;
+
+                // Drive Y (J8/J9)
+                uint32_t y_raw = phase_gpio_set[seq_y_idx];
+                uint32_t y_set = (y_raw & GPIO_MASK_J10) ? GPIO_MASK_J8 : 0;
+                if (y_raw & GPIO_MASK_J11) y_set |= GPIO_MASK_J9;
+                uint32_t y_clr = (GPIO_MASK_J8 | GPIO_MASK_J9) & ~y_set;
+                if (y_set) sio_hw->gpio_set = y_set;
+                if (y_clr) sio_hw->gpio_clr = y_clr;
+
+                // Strobe response
+                uint32_t gpio_in = sio_hw->gpio_in;
+                uint8_t  idx     = (gpio_in >> STROBE_SHIFT) & 0xF;
+                uint32_t set     = jag_strobe_table[idx] & ~pm;
+                uint32_t clr     = GPIO_MASK_ALL_OUT & ~set & ~pm;
+                sio_hw->gpio_set = set;
+                if (clr) sio_hw->gpio_clr = clr;
             }
-
-            // Drive X axis pins (J10=XA, J11=XB)
-            uint32_t x_set = phase_gpio_set[seq_idx];
-            uint32_t x_clr = (GPIO_MASK_J10 | GPIO_MASK_J11) & ~x_set;
-            if (x_set) sio_hw->gpio_set = x_set;
-            if (x_clr) sio_hw->gpio_clr = x_clr;
-
-            // Drive Y axis pins (J8=YA, J9=YB) using same phase table
-            // Map phase_gpio_set J10/J11 bits to J8/J9 equivalents
-            uint32_t y_raw = phase_gpio_set[seq_y_idx];
-            uint32_t y_set = 0;
-            if (y_raw & GPIO_MASK_J10) y_set |= GPIO_MASK_J8;
-            if (y_raw & GPIO_MASK_J11) y_set |= GPIO_MASK_J9;
-            uint32_t y_clr = (GPIO_MASK_J8 | GPIO_MASK_J9) & ~y_set;
-            if (y_set) sio_hw->gpio_set = y_set;
-            if (y_clr) sio_hw->gpio_clr = y_clr;
         }
-
-        // ---- Button/direction output — single lookup table access ----
-        uint32_t gpio_in = sio_hw->gpio_in;
-        uint8_t  idx     = (gpio_in >> STROBE_SHIFT) & 0xF;
-        uint32_t set     = jag_strobe_table[idx];
-        uint32_t clr     = GPIO_MASK_ALL_OUT & ~set;
-        if (jag_input_mode == JAG_MODE_SPINNER || jag_input_mode == JAG_MODE_MOUSE) {
-            set &= ~(GPIO_MASK_J10 | GPIO_MASK_J11);
-            clr &= ~(GPIO_MASK_J10 | GPIO_MASK_J11);
-        }
-        if (jag_input_mode == JAG_MODE_MOUSE) {
-            set &= ~(GPIO_MASK_J8 | GPIO_MASK_J9);
-            clr &= ~(GPIO_MASK_J8 | GPIO_MASK_J9);
-        }
-        sio_hw->gpio_set = set;
-        if (clr) sio_hw->gpio_clr = clr;
     }
 }
 

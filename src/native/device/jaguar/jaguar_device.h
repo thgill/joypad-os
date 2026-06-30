@@ -129,6 +129,9 @@ extern volatile int16_t jag_phase_y_pending;  // Y axis — mouse mode only
 // Step interval in microseconds — derived from spinner_divisor by Core 0
 extern volatile uint32_t jag_step_interval_us;
 
+// Bitmask of GPIO pins owned by the phase driver (excludes from strobe response)
+extern volatile uint32_t jag_phase_pin_mask;
+
 // Current input mode
 extern volatile jag_input_mode_t jag_input_mode;
 
